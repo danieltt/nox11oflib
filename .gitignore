@@ -1,6 +1,8 @@
 *.in
+*.lo
+*.[oa]
 aclocal.m4
 autom4te.cache/
 build/
 configure.ac
-
+configure
