@@ -117,6 +117,8 @@ private:
 	RulesDB* rules;
 	Locator* locator;
 	int cookie;
+
+	ofp_flow_mod* init_of_command(datapathid src, size_t size);
 };
 }
 #endif

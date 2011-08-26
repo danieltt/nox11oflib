@@ -301,58 +301,62 @@ int fns::remove_rule(FNSRule rule) {
 
 #ifdef NOX_OF11
 
+ofp_flow_mod* fns::init_of_command(datapathid src, size_t size) {
+	ofp_flow_mod* ofm;
+
+	boost::shared_array<char> raw_of(new char[size]);
+	ofm = (ofp_flow_mod*) raw_of.get();
+	memset(ofm, 0, size);
+
+	ofm->header.version = OFP_VERSION;
+	ofm->header.length = htons(size);
+
+	ofm->match.type = OFPMT_STANDARD;
+	ofm->match.wildcards = OFPFW_ALL;
+	memset(ofm->match.dl_src_mask, 0xff, 6);
+	memset(ofm->match.dl_dst_mask, 0xff, 6);
+	ofm->match.nw_src_mask = 0xffffffff;
+	ofm->match.nw_dst_mask = 0xffffffff;
+	uint32_t filter = OFPFW_ALL;
+	ofm->match.wildcards = htonl(filter);
+	ofm->cookie = htonl(cookie);
+	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
+
+	return ofm;
+}
+
 int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	datapathid src;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
 			flow->dl_src.string().c_str());
-
-	/*OpenFlow command initialization*/
-	ofp_flow_mod* ofm;
-	size_t size = sizeof *ofm + sizeof(ofp_instruction_actions)
-			+ sizeof(ofp_action_output);
-	boost::shared_array<char> raw_of(new char[size]);
-	ofm = (ofp_flow_mod*) raw_of.get();
-	memset(ofm, 0, size);
 	src = datapathid::from_host(id);
+	/* Size of the packet*/
+	size_t size = sizeof(ofp_flow_mod) + sizeof(ofp_instruction_actions)
+			+ sizeof(ofp_action_output);
+	/*OpenFlow command initialization*/
+	ofp_flow_mod* ofm = init_of_command(src, size);
+
+	/* Filters  */
+	uint32_t filter = OFPFW_ALL;
+	filter &= (~OFPFW_IN_PORT); /* Filter by port */
+	ofm->match.wildcards = htonl(filter);
 
 	ofm->buffer_id = buf;
-	ofm->header.version = OFP_VERSION;
 	ofm->header.type = OFPT_FLOW_MOD;
 
-	ofm->header.length = htons(size);
-	/*WILD cards*/
-	uint32_t filter = OFPFW_ALL;
-	/*Filter by port*/
-	filter &= (~OFPFW_IN_PORT);
-
-    ofm->match.type = OFPMT_STANDARD;
-    ofm->match.wildcards = OFPFW_ALL;
-    memset(ofm->match.dl_src_mask, 0xff, 6);
-    memset(ofm->match.dl_dst_mask, 0xff, 6);
-    ofm->match.nw_src_mask = 0xffffffff;
-    ofm->match.nw_dst_mask = 0xffffffff;
-
-	/*mask*/
+	/* L2 src matching */
 	memset(ofm->match.dl_src_mask, 0, sizeof(ofm->match.dl_src_mask));
-	/*content*/
 	memcpy(ofm->match.dl_src, flow->dl_src.octet, sizeof(flow->dl_src.octet));
 
-	/*mask*/
+	/* L2 dest matching*/
 	memset(ofm->match.dl_dst_mask, 0, sizeof(ofm->match.dl_dst_mask));
-	/*content*/
 	memcpy(ofm->match.dl_dst, flow->dl_dst.octet, sizeof(flow->dl_dst.octet));
 
-	ofm->match.wildcards = htonl(filter);
+	/* Port in */
 	ofm->match.in_port = htonl(p_in);
-	//	memcpy(ofm->match.dl_dst, r->getDlDst().octet, sizeof(r->getDlDst().octet));
 
-	/*Some more parameters*/
-	ofm->cookie = htonl(cookie);
 	ofm->command = htons(OFPFC_ADD);
 	ofm->hard_timeout = htons(0);
-	//ofm->hard_timeout = htons(10);
-	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
-	//	ofm->flags = htons(OFPFF_CHECK_OVERLAP);
 
 	/*Action*/
 	ofp_instruction_actions* ins =
@@ -378,7 +382,8 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 
 int fns::remove_rule(FNSRule rule) {
 	datapathid src;
-	lg.warn("Removing rule: %ld: %d | src: %s | dst: %s\n", rule.sw_id, rule.in_port,rule.dl_src.string().c_str() ,
+	lg.warn("Removing rule: %ld: %d | src: %s | dst: %s\n", rule.sw_id,
+			rule.in_port, rule.dl_src.string().c_str(),
 			rule.dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
@@ -394,12 +399,12 @@ int fns::remove_rule(FNSRule rule) {
 
 	ofm->header.length = htons(size);
 
-    ofm->match.type = OFPMT_STANDARD;
-    ofm->match.wildcards = OFPFW_ALL;
-    memset(ofm->match.dl_src_mask, 0xff, 6);
-    memset(ofm->match.dl_dst_mask, 0xff, 6);
-    ofm->match.nw_src_mask = 0xffffffff;
-    ofm->match.nw_dst_mask = 0xffffffff;
+	ofm->match.type = OFPMT_STANDARD;
+	ofm->match.wildcards = OFPFW_ALL;
+	memset(ofm->match.dl_src_mask, 0xff, 6);
+	memset(ofm->match.dl_dst_mask, 0xff, 6);
+	ofm->match.nw_src_mask = 0xffffffff;
+	ofm->match.nw_dst_mask = 0xffffffff;
 
 	/*mask*/
 	memset(ofm->match.dl_src_mask, 0, sizeof(ofm->match.dl_src_mask));
@@ -411,9 +416,9 @@ int fns::remove_rule(FNSRule rule) {
 	/*content*/
 	memcpy(ofm->match.dl_dst, rule.dl_dst.octet, sizeof(rule.dl_dst.octet));
 
-    ofm->cookie = 0x00ULL;
-    ofm->cookie_mask = 0x00ULL;
-    ofm->table_id = 0xff; // all tables
+	ofm->cookie = 0x00ULL;
+	ofm->cookie_mask = 0x00ULL;
+	ofm->table_id = 0xff; // all tables
 
 	/*Some more parameters*/
 	ofm->command = htons(OFPFC_DELETE);
@@ -428,7 +433,7 @@ int fns::remove_rule(FNSRule rule) {
 	return 0;
 }
 
-int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag){
+int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
 
 	return 0;
 }
@@ -443,7 +448,8 @@ void fns::forward_via_controller(Flow *flow, const Buffer& buff, uint64_t id,
 #ifdef NOX_OF10
 	send_openflow_packet(datapathid::from_host(id), buff, port, 0, false);
 #else
-	send_openflow_pkt(datapathid::from_host(id), buff, OFPP_CONTROLLER, port, false);
+	send_openflow_pkt(datapathid::from_host(id), buff, OFPP_CONTROLLER, port,
+			false);
 #endif
 }
 
