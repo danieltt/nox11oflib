@@ -65,7 +65,7 @@ ACI_PACKAGE([coreapps],[core application set],
 		],
                [yes])
 ACI_PACKAGE([netapps],[misc network apps],
-               [discovery
+               [discovery fns
                 #add netapps component here
 		],
                [TURN_ON_NETAPPS])
