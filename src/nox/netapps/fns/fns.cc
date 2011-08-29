@@ -327,26 +327,25 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	size_t size = sizeof(ofp_flow_mod) + sizeof(ofp_instruction_actions)
 			+ sizeof(ofp_action_output);
 	/*OpenFlow command initialization*/
-	//ofp_flow_mod* ofm = init_of_command(src, size);
 	ofp_flow_mod* ofm;
 
-		boost::shared_array<char> raw_of(new char[size]);
-		ofm = (ofp_flow_mod*) raw_of.get();
-		memset(ofm, 0, size);
+	boost::shared_array<char> raw_of(new char[size]);
+	ofm = (ofp_flow_mod*) raw_of.get();
+	memset(ofm, 0, size);
 
-		ofm->header.version = OFP_VERSION;
-		ofm->header.type = OFPT_FLOW_MOD;
-		ofm->header.length = htons(size);
+	ofm->header.version = OFP_VERSION;
+	ofm->header.type = OFPT_FLOW_MOD;
+	ofm->header.length = htons(size);
 
-		ofm->match.type = OFPMT_STANDARD;
-		ofm->match.wildcards = OFPFW_ALL;
-		memset(ofm->match.dl_src_mask, 0xff, 6);
-		memset(ofm->match.dl_dst_mask, 0xff, 6);
-		ofm->match.nw_src_mask = 0xffffffff;
-		ofm->match.nw_dst_mask = 0xffffffff;
-		ofm->match.wildcards = OFPFW_ALL;
-		ofm->cookie = htonl(cookie);
-		ofm->priority = htons(OFP_DEFAULT_PRIORITY);
+	ofm->match.type = OFPMT_STANDARD;
+	ofm->match.wildcards = OFPFW_ALL;
+	memset(ofm->match.dl_src_mask, 0xff, 6);
+	memset(ofm->match.dl_dst_mask, 0xff, 6);
+	ofm->match.nw_src_mask = 0xffffffff;
+	ofm->match.nw_dst_mask = 0xffffffff;
+	ofm->match.wildcards = OFPFW_ALL;
+	ofm->cookie = htonl(cookie);
+	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
 
 	/* Filters  */
 	uint32_t filter = OFPFW_ALL;
@@ -393,33 +392,51 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 }
 
 int fns::remove_rule(FNSRule rule) {
-	datapathid src;
+	datapathid dpid;
 	lg.warn("Removing rule: %ld: %d | src: %s | dst: %s\n", rule.sw_id,
 			rule.in_port, rule.dl_src.string().c_str(),
 			rule.dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
-	src = datapathid::from_host(rule.sw_id);
-	size_t size = sizeof(ofp_flow_mod);
-	ofp_flow_mod* ofm = init_of_command(src, size);
+	dpid = datapathid::from_host(rule.sw_id);
 
-	/* L2 src*/
-	memset(ofm->match.dl_src_mask, 0, sizeof(ofm->match.dl_src_mask));
-	memcpy(ofm->match.dl_src, rule.dl_src.octet, sizeof(rule.dl_src.octet));
+	/* delete all flows on this switch */
+	struct ofl_match_standard match;
+	match.header.type = OFPMT_STANDARD;
+	match.wildcards = OFPFW_ALL;
+	//    memset(match.dl_src_mask, 0xff, 6);
+	//   memset(match.dl_dst_mask, 0xff, 6);
+	match.nw_src_mask = 0xffffffff;
+	match.nw_dst_mask = 0xffffffff;
+	match.metadata_mask = 0xffffffffffffffffULL;
 
-	/* L2 dst*/
-	memset(ofm->match.dl_dst_mask, 0, sizeof(ofm->match.dl_dst_mask));
-	memcpy(ofm->match.dl_dst, rule.dl_dst.octet, sizeof(rule.dl_dst.octet));
+	/* L2 src */
+	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
+	memcpy(match.dl_src, rule.dl_src.octet, sizeof(rule.dl_src.octet));
 
-	ofm->cookie = 0x00ULL;
-	ofm->cookie_mask = 0x00ULL;
-	ofm->table_id = 0xff; // all tables
+	/* L2 dst */
+	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
+	memcpy(match.dl_dst, rule.dl_dst.octet, sizeof(rule.dl_dst.octet));
 
-	ofm->command = htons(OFPFC_DELETE);
-	ofm->hard_timeout = htons(0);
+	struct ofl_msg_flow_mod mod;
+	mod.header.type = OFPT_FLOW_MOD;
+	mod.cookie = 0x00ULL;
+	mod.cookie_mask = 0x00ULL;
+	mod.table_id = 0xff; // all tables
+	mod.command = OFPFC_DELETE;
+	mod.out_port = OFPP_ANY;
+	mod.out_group = OFPG_ANY;
+	mod.flags = 0x0000;
+	mod.match = (struct ofl_match_header *) &match;
+	mod.instructions_num = 0;
+	mod.instructions = NULL;
 
-	/*Send command*/
-	send_openflow_command(src, &ofm->header, true);
+	/* XXX OK to do non-blocking send?  We do so with all other
+	 * commands on switch join */
+	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
+			== EAGAIN) {
+		lg.err("Error, unable to clear flow table on startup");
+	}
 	return 0;
 }
 
