@@ -15,13 +15,6 @@
  * You should have received a copy of the GNU General Public License
  * along with NOX.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "openflow/openflow.h"
-#if OFP_VERSION == 0x01
-#define NOX_OF10
-#endif
-#if OFP_VERSION == 0x02
-#define NOX_OF11
-#endif
 
 #include "assert.hh"
 #include "netinet++/ethernet.hh"
@@ -32,6 +25,7 @@
 
 #ifdef NOX_OF10
 #include "openflow-action.hh"
+#include "packet-in.hh"
 #define TIMEOUT_DEF 0
 #endif
 
@@ -185,7 +179,6 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/*Conflict resolution*/
 		flow = getMatchFlow(path.at(k)->id, flow);
 		/* Install rule */
-
 		install_rule(path.at(k)->id, in_port, out_port, flow, buf_id);
 
 		/* Keeping track of the installed rules */
@@ -342,7 +335,6 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	ofm->match.wildcards = htonl(filter);
 	ofm->match.type = OFPMT_STANDARD;
 
-
 	ofm->buffer_id = buf;
 
 	/* L2 src matching */
@@ -388,8 +380,8 @@ int fns::remove_rule(FNSRule rule) {
 			rule.dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
-	 src = datapathid::from_host(rule.sw_id);
-	size_t size = sizeof (ofp_flow_mod);
+	src = datapathid::from_host(rule.sw_id);
+	size_t size = sizeof(ofp_flow_mod);
 	ofp_flow_mod* ofm = init_of_command(src, size);
 
 	/* L2 src*/
@@ -413,6 +405,16 @@ int fns::remove_rule(FNSRule rule) {
 }
 
 int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
+	datapathid src;
+	lg.warn("Adding mpls rule");
+
+	/*OpenFlow command initialization*/
+	src = datapathid::from_host(id);
+	size_t size = sizeof(ofp_flow_mod);
+	ofp_flow_mod* ofm = init_of_command(src, size);
+
+	/*Send command*/
+	send_openflow_command(src, &ofm->header, true);
 
 	return 0;
 }

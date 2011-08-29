@@ -19,6 +19,14 @@
 #ifndef fns_HH
 #define fns_HH
 
+#include "openflow/openflow.h"
+#if OFP_VERSION == 0x01
+#define NOX_OF10
+#endif
+#if OFP_VERSION == 0x02
+#define NOX_OF11
+#endif
+
 #include "component.hh"
 #include "config.h"
 #include "threads/native.hh"
@@ -79,7 +87,9 @@ public:
 	void forward_via_controller(Flow *flow, const Buffer& buff, uint64_t id , int port);
 
 	int install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf);
+#ifdef NOX_OF11
 	int install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag);
+#endif
 	int remove_rule(FNSRule rule);
 
 	int save_fns(fnsDesc* fns);
