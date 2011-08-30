@@ -19,14 +19,7 @@
 #ifndef fns_HH
 #define fns_HH
 
-#include "openflow/openflow.h"
-#if OFP_VERSION == 0x01
-#define NOX_OF10
-#endif
-#if OFP_VERSION == 0x02
-#define NOX_OF11
-#endif
-
+#include "noxdetect.hh"
 #include "component.hh"
 #include "config.h"
 #include "threads/native.hh"
@@ -128,7 +121,6 @@ private:
 	Locator* locator;
 	int cookie;
 
-	ofp_flow_mod* init_of_command(datapathid src, size_t size);
 };
 }
 #endif

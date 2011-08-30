@@ -108,7 +108,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		process_packet_in(ep, &flow, b, -1);
 	}
 
-	locator->printLocations();
+//	locator->printLocations();
 	return CONTINUE;
 }
 
@@ -294,30 +294,6 @@ int fns::remove_rule(FNSRule rule) {
 
 #ifdef NOX_OF11
 
-ofp_flow_mod* fns::init_of_command(datapathid src, size_t size) {
-	ofp_flow_mod* ofm;
-
-	boost::shared_array<char> raw_of(new char[size]);
-	ofm = (ofp_flow_mod*) raw_of.get();
-	memset(ofm, 0, size);
-
-	ofm->header.version = OFP_VERSION;
-	ofm->header.type = OFPT_FLOW_MOD;
-	ofm->header.length = htons(size);
-
-	ofm->match.type = OFPMT_STANDARD;
-	ofm->match.wildcards = OFPFW_ALL;
-	memset(ofm->match.dl_src_mask, 0xff, 6);
-	memset(ofm->match.dl_dst_mask, 0xff, 6);
-	ofm->match.nw_src_mask = 0xffffffff;
-	ofm->match.nw_dst_mask = 0xffffffff;
-	ofm->match.wildcards = OFPFW_ALL;
-	ofm->cookie = htonl(cookie);
-	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
-
-	return ofm;
-}
-
 int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	datapathid src;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
@@ -445,12 +421,7 @@ int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
 	lg.warn("Adding mpls rule");
 
 	/*OpenFlow command initialization*/
-	src = datapathid::from_host(id);
-	size_t size = sizeof(ofp_flow_mod);
-	ofp_flow_mod* ofm = init_of_command(src, size);
 
-	/*Send command*/
-	send_openflow_command(src, &ofm->header, true);
 
 	return 0;
 }
