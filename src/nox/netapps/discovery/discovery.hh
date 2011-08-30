@@ -19,9 +19,9 @@
         Values are in ms.
 */
 
-#define PER_PORT_PERIOD        100
-#define PACKET_OUT_PERIOD       10
-#define TIMEOUT_CHECK_PERIOD   500
+#define PER_PORT_PERIOD        10000
+#define PACKET_OUT_PERIOD       100
+#define TIMEOUT_CHECK_PERIOD   5000
 #define LINK_TIMEOUT           PER_PORT_PERIOD * 3
 
 #define LLDP_TYPE           0x88cc
