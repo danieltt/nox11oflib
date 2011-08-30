@@ -108,7 +108,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		process_packet_in(ep, &flow, b, -1);
 	}
 
-//	locator->printLocations();
+	//	locator->printLocations();
 	return CONTINUE;
 }
 
@@ -179,11 +179,20 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/*Conflict resolution*/
 		flow = getMatchFlow(path.at(k)->id, flow);
 		/* Install rule */
-		install_rule(path.at(k)->id, in_port, out_port, flow, buf_id);
+		install_rule(path.at(k)->id, in_port, out_port, flow->dl_src,
+				flow->dl_dst, buf_id);
 
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, in_port, flow->dl_src,
 				flow->dl_dst));
+
+		/* Install rule reverse*/
+		install_rule(path.at(k)->id, out_port, in_port, flow->dl_dst,
+				flow->dl_src, buf_id);
+
+		/* Keeping track of the installed rules */
+		ep_src->addRule(FNSRule(path.at(k)->id, out_port, flow->dl_dst,
+				flow->dl_src));
 		in_port = ports.second;
 
 	}
@@ -294,10 +303,11 @@ int fns::remove_rule(FNSRule rule) {
 
 #ifdef NOX_OF11
 
-int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
+int fns::install_rule(uint64_t id, int p_in, int p_out,
+		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
 	datapathid src;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
-			flow->dl_src.string().c_str());
+			dl_src.string().c_str());
 	src = datapathid::from_host(id);
 	/* Size of the packet*/
 	size_t size = sizeof(ofp_flow_mod) + sizeof(ofp_instruction_actions)
@@ -333,11 +343,11 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 
 	/* L2 src matching */
 	memset(ofm->match.dl_src_mask, 0, sizeof(ofm->match.dl_src_mask));
-	memcpy(ofm->match.dl_src, flow->dl_src.octet, sizeof(flow->dl_src.octet));
+	memcpy(ofm->match.dl_src, dl_src.octet, sizeof(dl_src.octet));
 
 	/* L2 dest matching*/
 	memset(ofm->match.dl_dst_mask, 0, sizeof(ofm->match.dl_dst_mask));
-	memcpy(ofm->match.dl_dst, flow->dl_dst.octet, sizeof(flow->dl_dst.octet));
+	memcpy(ofm->match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
 
 	/* Port in */
 	ofm->match.in_port = htonl(p_in);
@@ -421,7 +431,6 @@ int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
 	lg.warn("Adding mpls rule");
 
 	/*OpenFlow command initialization*/
-
 
 	return 0;
 }

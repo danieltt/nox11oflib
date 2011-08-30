@@ -80,6 +80,7 @@ public:
 	void forward_via_controller(Flow *flow, const Buffer& buff, uint64_t id , int port);
 
 	int install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf);
+	int install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
 #ifdef NOX_OF11
 	int install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag);
 #endif
