@@ -92,6 +92,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		return CONTINUE;
 	}
 
+	lg.dbg("MPLS: u port %d label:%u tc:%d", flow.tp_dst, flow.mpls_label, flow.mpls_tc);
 	EPoint* ep = rules->getEpoint(dpid, port);
 
 	if (ep == NULL) {
