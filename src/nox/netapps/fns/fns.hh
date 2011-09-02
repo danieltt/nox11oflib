@@ -77,7 +77,7 @@ public:
 	void server();
 
 	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff, int buf_id);
-	void forward_via_controller(Flow *flow, const Buffer& buff, uint64_t id , int port);
+	void forward_via_controller(uint64_t id, const Buffer& buff, int port);
 
 	int install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf);
 	int install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);

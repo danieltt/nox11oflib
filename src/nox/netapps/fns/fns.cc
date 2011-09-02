@@ -22,6 +22,8 @@
 #include "fns.hh"
 #include "libnetvirt/fns-msg.h"
 #include "libnetvirt/fns.h"
+#include "../discovery/discovery.hh"
+#include "packets.h"
 
 #ifdef NOX_OF10
 #include "openflow-action.hh"
@@ -88,23 +90,21 @@ Disposition fns::handle_packet_in(const Event& e) {
 #endif
 
 	/* drop all LLDP packets */
-	if (flow.dl_type == ethernet::LLDP) {
+	if (flow.match.dl_type == LLDP_TYPE) {
 		return CONTINUE;
 	}
 
-	lg.dbg("MPLS: u port %d label:%u tc:%d", flow.tp_dst, flow.mpls_label, flow.mpls_tc);
+	lg.dbg("Ether_type: %x",flow.match.dl_type);
+//	lg.dbg("MPLS: u port %d label:%u tc:%d", flow.match.tp_dst,
+//			flow.match.mpls_label, flow.match.mpls_tc);
 	EPoint* ep = rules->getEpoint(dpid, port);
 
 	if (ep == NULL) {
 		lg.dbg("No rules for this endpoint: %ld:%d", dpid, port);
 		/*DROP packet for a given time*/
 	} else {
-		if (locator->insertClient(flow.dl_src, ep)) {
-			lg.dbg("New client inserted in Locator: %s",
-					flow.dl_src.string().c_str());
-		} else {
-
-		}
+		ethernetaddr dl_src = ethernetaddr(flow.match.dl_src);
+		locator->insertClient(dl_src, ep);
 		/*TODO fix buffer id -1*/
 		process_packet_in(ep, &flow, b, -1);
 	}
@@ -123,9 +123,6 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	buf_id = -1;
 	pair<int, int> ports;
 
-	lg.dbg("Processing and installing rule for %ld:%d in fns: %s\n",
-			ep_src->ep_id, ep_src->in_port, fns->name);
-
 	/* Is destination broadcast address and ARP?*/
 	/* TODO with OF1.1 should be possible to send the packets
 	 *  to the endpoint using the network
@@ -133,13 +130,19 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	 *
 	 *  Currently we use the controller channel to forward the ARP packets.
 	 */
-	if (flow->dl_dst.is_broadcast() && flow->dl_type == ethernet::ARP) {
+	ethernetaddr dl_dst = ethernetaddr(flow->match.dl_dst);
+	ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
+
+	lg.dbg("Processing and installing rule for %ld:%d in fns: %s\n",
+			ep_src->ep_id, ep_src->in_port, fns->name);
+
+
+	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP ) {
 		/*Send to all endpoints of the fns*/
 		lg.warn("Sending ARP broadcast msg");
 		for (int j = 0; j < fns->nEp; j++) {
 			if (fns->ep[j].id != ep_src->ep_id)
-				forward_via_controller(flow, buff, fns->ep[j].id,
-						fns->ep[j].port);
+				forward_via_controller(fns->ep[j].id, buff, fns->ep[j].port);
 		}
 		return;
 	}
@@ -151,7 +154,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		return;
 	}
 	/*Get location of destination*/
-	ep_dst = locator->getLocation(flow->dl_dst);
+	ep_dst = locator->getLocation(dl_dst);
 	if (ep_dst == NULL) {
 		lg.warn("NO destination for this packet in the LOCATOR");
 		return;
@@ -180,20 +183,16 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/*Conflict resolution*/
 		flow = getMatchFlow(path.at(k)->id, flow);
 		/* Install rule */
-		install_rule(path.at(k)->id, in_port, out_port, flow->dl_src,
-				flow->dl_dst, buf_id);
+		install_rule(path.at(k)->id, in_port, out_port, dl_src, dl_dst, buf_id);
 
 		/* Keeping track of the installed rules */
-		ep_src->addRule(FNSRule(path.at(k)->id, in_port, flow->dl_src,
-				flow->dl_dst));
+		ep_src->addRule(FNSRule(path.at(k)->id, in_port, dl_src, dl_dst));
 
 		/* Install rule reverse*/
-		install_rule(path.at(k)->id, out_port, in_port, flow->dl_dst,
-				flow->dl_src, buf_id);
+		install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src, buf_id);
 
 		/* Keeping track of the installed rules */
-		ep_src->addRule(FNSRule(path.at(k)->id, out_port, flow->dl_dst,
-				flow->dl_src));
+		ep_src->addRule(FNSRule(path.at(k)->id, out_port, dl_dst, dl_src));
 		in_port = ports.second;
 
 	}
@@ -307,6 +306,7 @@ int fns::remove_rule(FNSRule rule) {
 int fns::install_rule(uint64_t id, int p_in, int p_out,
 		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
 	datapathid src;
+
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
 			dl_src.string().c_str());
 	src = datapathid::from_host(id);
@@ -438,8 +438,7 @@ int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
 
 #endif
 
-void fns::forward_via_controller(Flow *flow, const Buffer& buff, uint64_t id,
-		int port) {
+void fns::forward_via_controller(uint64_t id, const Buffer& buff, int port) {
 	lg.warn("ATTENTION. Sending packet directly to the destination: %lu :%d",
 			id, port);
 
