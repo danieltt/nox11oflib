@@ -94,9 +94,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		return CONTINUE;
 	}
 
-	lg.dbg("Ether_type: %x",flow.match.dl_type);
-//	lg.dbg("MPLS: u port %d label:%u tc:%d", flow.match.tp_dst,
-//			flow.match.mpls_label, flow.match.mpls_tc);
+	lg.dbg("MPLS: label:%u tc:%d", flow.match.mpls_label, flow.match.mpls_tc);
 	EPoint* ep = rules->getEpoint(dpid, port);
 
 	if (ep == NULL) {

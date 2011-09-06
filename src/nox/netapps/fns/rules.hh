@@ -38,6 +38,7 @@ public:
 	int in_port;
 	vigil::ethernetaddr dl_src;
 	vigil::ethernetaddr dl_dst;
+	uint32_t mpls;
 
 };
 

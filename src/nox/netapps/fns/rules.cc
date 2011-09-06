@@ -31,6 +31,7 @@ EPoint* SWEPoint::getEpoint(int port) {
 	multimap<int, EPoint*>::iterator rule = rules.find(port);
 	if (rules.end() == rule)
 		return NULL;
+
 	return rule->second;
 }
 void SWEPoint::removeEpoint_fromPort(int port){
