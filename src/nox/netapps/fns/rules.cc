@@ -18,42 +18,65 @@
 #include "rules.hh"
 
 /*Epoint class*/
-void EPoint::addRule(FNSRule r){
+
+EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns) :
+	ep_id(ep_id), in_port(in_port), mpls(mpls), fns(fns) {
+	key = generate_key(ep_id, in_port, mpls);
+}
+
+void EPoint::addRule(FNSRule r) {
 	installed_rules.push_back(r);
 }
 
+uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls) {
+	/*TODO improve mixing functions */
+	uint64_t tmp = ((uint64_t) port << 32) + mpls;
+	tmp ^= tmp >> 33;
+	tmp *= 0xff51afd7ed558ccd;
+	tmp ^= tmp >> 33;
+	tmp *= 0xc4ceb9fe1a85ec53;
+	tmp ^= tmp >> 33;
 
-/*SWEPoint class*/
-void SWEPoint::insertEpoint(int port, EPoint* rule) {
-	rules.insert(pair<int, EPoint*> (port, rule));
-}
-EPoint* SWEPoint::getEpoint(int port) {
-	multimap<int, EPoint*>::iterator rule = rules.find(port);
-	if (rules.end() == rule)
-		return NULL;
+	sw_id ^= sw_id >> 33;
+	sw_id *= 0xff51afd7ed558ccd;
+	sw_id ^= sw_id >> 33;
+	sw_id *= 0xc4ceb9fe1a85ec53;
+	sw_id ^= sw_id >> 33;
 
-	return rule->second;
-}
-void SWEPoint::removeEpoint_fromPort(int port){
-	rules.erase(port);
-
+	return (tmp+sw_id) % UINT64_MAX ;
 }
 
 /*RulesDB class*/
-void RulesDB::addEPoint(endpoint* ep, fnsDesc* fns) {
-	EPoint* epoint = new EPoint(ep->id, ep->port, fns);
-	SWEPoint* node;
+uint64_t RulesDB::addEPoint(endpoint* ep, fnsDesc* fns) {
+	EPoint* epoint = new EPoint(ep->id, ep->port, ep->mpls, fns);
 	//	printf("Adding %ld\n",ep->id);
-	node = getSWEndpoint(ep->id);
+	EPoint *node = getEpoint(epoint->key);
 	if (node == NULL) {
-		node = new SWEPoint(ep->id);
-		endpoints.insert(pair<uint64_t, SWEPoint*> (ep->id, node));
+		endpoints.insert(pair<uint64_t, EPoint*> (epoint->key, epoint));
+		return epoint->key;
+	}else {
+		return 0;
 	}
-	node->insertEpoint(ep->port, epoint);
-
+}
+void RulesDB::removeEPoint(uint64_t key){
+	EPoint*ep=getEpoint(key);
+	endpoints.erase(key);
+	if (ep)
+		free(ep);
 }
 
-fnsDesc* RulesDB::addFNS(fnsDesc* fns1){
+EPoint* RulesDB::getEpoint(uint64_t id) {
+	//	printf("# endpoints: %d\n",endpoints.size());
+	if (endpoints.size() == 0) {
+		return NULL;
+	}
+	map<uint64_t, EPoint*>::iterator epr = endpoints.find(id);
+	if (endpoints.end() == epr)
+		return NULL;
+	return epr->second;
+}
+
+fnsDesc* RulesDB::addFNS(fnsDesc* fns1) {
 	fnsDesc *fns = (fnsDesc *) malloc(sizeof(fnsDesc));
 	/*When removing look for all the references*/
 	memcpy(fns, fns1, sizeof(fnsDesc));
@@ -61,17 +84,14 @@ fnsDesc* RulesDB::addFNS(fnsDesc* fns1){
 	return fns;
 }
 
-
-fnsDesc* RulesDB::getFNS(fnsDesc* fns){
+fnsDesc* RulesDB::getFNS(fnsDesc* fns) {
 	map<uint64_t, fnsDesc*>::iterator fns1 = fnsList.find(fns->uuid);
 	if (fnsList.end() == fns1)
 		return NULL;
 	return fns1->second;
 }
 
-
-
-void RulesDB::removeFNS(fnsDesc* fns){
+void RulesDB::removeFNS(fnsDesc* fns) {
 
 	fnsList.erase(fns->uuid);
 	/*Free memory*/
@@ -79,29 +99,14 @@ void RulesDB::removeFNS(fnsDesc* fns){
 }
 
 
-SWEPoint* RulesDB::getSWEndpoint(uint64_t id) {
-	//	printf("# endpoints: %d\n",endpoints.size());
-	if (endpoints.size() == 0) {
-		return NULL;
-	}
-	map<uint64_t, SWEPoint*>::iterator epr = endpoints.find(id);
-	if (endpoints.end() == epr)
-		return NULL;
-	return epr->second;
-}
-
-/* return the first rule that match */
-EPoint* RulesDB::getEpoint(uint64_t id, int port) {
-	SWEPoint* epr;
-	if ((epr = getSWEndpoint(id)) == NULL)
-		return NULL;
-	return epr->getEpoint(port);
-}
 
 
-/*Locator class*/
-bool Locator::validateAddr(vigil::ethernetaddr addr){
-	if(addr.is_multicast() || addr.is_broadcast() || addr.is_zero())
+/**
+ * Locator class
+ */
+
+bool Locator::validateAddr(vigil::ethernetaddr addr) {
+	if (addr.is_multicast() || addr.is_broadcast() || addr.is_zero())
 		return false;
 	/*Check if ethernetaddr exists*/
 	if (clients.size() == 0)
@@ -114,18 +119,8 @@ bool Locator::validateAddr(vigil::ethernetaddr addr){
 	return false;
 }
 
-bool Locator::insertClient(vigil::ethernetaddr addr, uint64_t id, int port) {
-	EPoint* ep;
-	if(!validateAddr(addr))
-		return false;
-	/*If not, insert*/
-	/* Get endpoint*/
-	ep = rules->getEpoint(id, port);
-	clients.insert(pair<vigil::ethernetaddr, EPoint*> (addr, ep));
-	return true;
-}
 bool Locator::insertClient(vigil::ethernetaddr addr, EPoint* ep) {
-	if(!validateAddr(addr))
+	if (!validateAddr(addr))
 		return false;
 	/*If not, insert*/
 	clients.insert(pair<vigil::ethernetaddr, EPoint*> (addr, ep));
@@ -141,13 +136,13 @@ EPoint* Locator::getLocation(vigil::ethernetaddr addr) {
 	return epr->second;
 }
 
-void Locator::printLocations(){
+void Locator::printLocations() {
 	map<vigil::ethernetaddr, EPoint*>::iterator it;
 	printf("LOACATOR DB:\n");
-	printf("num of entries: %d\n", (int)clients.size());
-	for(it = clients.begin(); it != clients.end(); it++)
-	{
-		printf("%s -> %d p:%d\n",it->first.string().c_str(), (int)it->second->ep_id, (int) it->second->in_port);
+	printf("num of entries: %d\n", (int) clients.size());
+	for (it = clients.begin(); it != clients.end(); it++) {
+		printf("%s -> %d p:%d\n", it->first.string().c_str(),
+				(int) it->second->ep_id, (int) it->second->in_port);
 	}
 
 }

@@ -22,52 +22,37 @@
 #include "libnetvirt/fns-msg.h"
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
-#include "openflow/openflow.h"
 #include "netinet++/ethernetaddr.hh"
 #include <list>
+#include <tr1/unordered_map>
+
+#include "openflow/openflow.h"
 
 using namespace std;
 class FNSRule {
 public:
-	FNSRule(uint64_t sw_id, int in_port, vigil::ethernetaddr dl_src,
-			vigil::ethernetaddr dl_dst) :
-		sw_id(sw_id), in_port(in_port), dl_src(dl_src), dl_dst(dl_dst) {
+	FNSRule(uint64_t sw_id, ofp_match match) :
+		sw_id(sw_id), match(match) {
 	}
-	;
 	uint64_t sw_id;
-	int in_port;
-	vigil::ethernetaddr dl_src;
-	vigil::ethernetaddr dl_dst;
-	uint32_t mpls;
-
+	ofp_match match;
 };
+
 
 class EPoint {
 public:
-	EPoint(uint64_t ep_id, int in_port, fnsDesc* fns) :
-		ep_id(ep_id), in_port(in_port), fns(fns) {
-	}
+	EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns);
 	void addRule(FNSRule r);
-	bool initialized;
+	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls);
+
+
+	uint64_t key;
 	uint64_t ep_id;
 	int in_port;
-	//vigil::ethernetaddr src_mac;
-	fnsDesc* fns;
-	vector<FNSRule> installed_rules;
-	//vector<Node*> path;
-};
+	uint32_t mpls;
+	fns_desc *fns;
 
-class SWEPoint {
-public:
-	SWEPoint(uint64_t ep_id) :
-		ep_id(ep_id) {
-	}
-	void insertEpoint(int port, EPoint* rule);
-	void removeEpoint_fromPort(int port);
-	EPoint* getEpoint(int port);
-private:
-	uint64_t ep_id;
-	multimap<int, EPoint*> rules; /*Port , rules*/
+	vector<FNSRule> installed_rules;
 };
 
 class RulesDB {
@@ -75,18 +60,20 @@ public:
 	RulesDB(PathFinder*finder) :
 		finder(finder) {
 	}
-	void addEPoint(endpoint* ep, fnsDesc* fns);
-	EPoint* getEpoint(uint64_t id, int port);
-	SWEPoint* getSWEndpoint(uint64_t id);
+	uint64_t addEPoint(endpoint* ep, fnsDesc* fns);
+	EPoint* getEpoint(uint64_t key);
+	void removeEPoint(uint64_t key);
+
 	fnsDesc* addFNS(fnsDesc* fns);
 	void removeFNS(fnsDesc* fns);
 	fnsDesc* getFNS(fnsDesc* fns);
+
 
 private:
 	PathFinder* finder;
 	/* Rules in memory
 	 * To be more scalable should be stored in a distributed way*/
-	map<uint64_t, SWEPoint*> endpoints;
+	map<uint64_t, EPoint*> endpoints;
 	map<uint64_t, fnsDesc*> fnsList;
 };
 
@@ -96,7 +83,6 @@ public:
 		rules(rules) {
 	}
 
-	bool insertClient(vigil::ethernetaddr addr, uint64_t id, int port);
 	bool insertClient(vigil::ethernetaddr addr, EPoint* ep);
 	EPoint* getLocation(vigil::ethernetaddr);
 	void printLocations();

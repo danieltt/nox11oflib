@@ -95,7 +95,8 @@ Disposition fns::handle_packet_in(const Event& e) {
 	}
 
 	lg.dbg("MPLS: label:%u tc:%d", flow.match.mpls_label, flow.match.mpls_tc);
-	EPoint* ep = rules->getEpoint(dpid, port);
+	EPoint* ep = rules->getEpoint(EPoint::generate_key(dpid, port,
+			flow.match.mpls_label));
 
 	if (ep == NULL) {
 		lg.dbg("No rules for this endpoint: %ld:%d", dpid, port);
@@ -114,12 +115,13 @@ Disposition fns::handle_packet_in(const Event& e) {
 void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		int buf_id) {
 	EPoint* ep_dst;
-	fnsDesc* fns = ep_src->fns;
+
 	vector<Node*> path;
 	int in_port = 0, out_port = 0;
 	int psize;
 	buf_id = -1;
 	pair<int, int> ports;
+	fnsDesc* fns = ep_src->fns;
 
 	/* Is destination broadcast address and ARP?*/
 	/* TODO with OF1.1 should be possible to send the packets
@@ -134,8 +136,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	lg.dbg("Processing and installing rule for %ld:%d in fns: %s\n",
 			ep_src->ep_id, ep_src->in_port, fns->name);
 
-
-	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP ) {
+	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
 		/*Send to all endpoints of the fns*/
 		lg.warn("Sending ARP broadcast msg");
 		for (int j = 0; j < fns->nEp; j++) {
@@ -181,16 +182,18 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/*Conflict resolution*/
 		flow = getMatchFlow(path.at(k)->id, flow);
 		/* Install rule */
-		install_rule(path.at(k)->id, in_port, out_port, dl_src, dl_dst, buf_id);
+		ofp_match match = install_rule(path.at(k)->id, in_port,
+				out_port, dl_src, dl_dst, buf_id);
 
 		/* Keeping track of the installed rules */
-		ep_src->addRule(FNSRule(path.at(k)->id, in_port, dl_src, dl_dst));
+		ep_src->addRule(FNSRule(path.at(k)->id, match));
 
 		/* Install rule reverse*/
-		install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src, buf_id);
+		match = install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
+				buf_id);
 
 		/* Keeping track of the installed rules */
-		ep_src->addRule(FNSRule(path.at(k)->id, out_port, dl_dst, dl_src));
+		ep_src->addRule(FNSRule(path.at(k)->id, match));
 		in_port = ports.second;
 
 	}
@@ -301,107 +304,82 @@ int fns::remove_rule(FNSRule rule) {
 
 #ifdef NOX_OF11
 
-int fns::install_rule(uint64_t id, int p_in, int p_out,
+ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
 	datapathid src;
 
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
 			dl_src.string().c_str());
-	src = datapathid::from_host(id);
-	/* Size of the packet*/
-	size_t size = sizeof(ofp_flow_mod) + sizeof(ofp_instruction_actions)
-			+ sizeof(ofp_action_output);
-	/*OpenFlow command initialization*/
-	ofp_flow_mod* ofm;
 
-	boost::shared_array<char> raw_of(new char[size]);
-	ofm = (ofp_flow_mod*) raw_of.get();
-	memset(ofm, 0, size);
-
-	ofm->header.version = OFP_VERSION;
-	ofm->header.type = OFPT_FLOW_MOD;
-	ofm->header.length = htons(size);
-
-	ofm->match.type = OFPMT_STANDARD;
-	ofm->match.wildcards = OFPFW_ALL;
-	memset(ofm->match.dl_src_mask, 0xff, 6);
-	memset(ofm->match.dl_dst_mask, 0xff, 6);
-	ofm->match.nw_src_mask = 0xffffffff;
-	ofm->match.nw_dst_mask = 0xffffffff;
-	ofm->match.wildcards = OFPFW_ALL;
-	ofm->cookie = htonl(cookie);
-	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
-
-	/* Filters  */
-	uint32_t filter = OFPFW_ALL;
-	filter &= (~OFPFW_IN_PORT); /* Filter by port */
-	ofm->match.wildcards = htonl(filter);
-	ofm->match.type = OFPMT_STANDARD;
-
-	ofm->buffer_id = buf;
-
-	/* L2 src matching */
-	memset(ofm->match.dl_src_mask, 0, sizeof(ofm->match.dl_src_mask));
-	memcpy(ofm->match.dl_src, dl_src.octet, sizeof(dl_src.octet));
-
-	/* L2 dest matching*/
-	memset(ofm->match.dl_dst_mask, 0, sizeof(ofm->match.dl_dst_mask));
-	memcpy(ofm->match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
-
-	/* Port in */
-	ofm->match.in_port = htonl(p_in);
-
-	ofm->command = htons(OFPFC_ADD);
-	ofm->hard_timeout = htons(0);
-
-	/*Action*/
-	ofp_instruction_actions* ins =
-			((ofp_instruction_actions*) ofm->instructions);
-	memset(ins, 0, sizeof(ofp_instruction_actions));
-	ins->type = htons(OFPIT_WRITE_ACTIONS);
-	ins->len = htons(sizeof(ofp_instruction_actions)
-			+ sizeof(ofp_action_output));
-
-	ofp_action_output* action = ((ofp_action_output*) ins->actions);
-	memset(action, 0, sizeof(ofp_action_output));
-
-	action->type = htons(OFPAT_OUTPUT);
-	action->len = htons(sizeof(ofp_action_output));
-	action->max_len = htons(256);
-	action->port = htonl(p_out);
-
-	/*Send command*/
-	send_openflow_command(src, &ofm->header, true);
-	cookie++;
-	return 0;
-}
-
-int fns::remove_rule(FNSRule rule) {
 	datapathid dpid;
-	lg.warn("Removing rule: %ld: %d | src: %s | dst: %s\n", rule.sw_id,
-			rule.in_port, rule.dl_src.string().c_str(),
-			rule.dl_dst.string().c_str());
-
 	/*OpenFlow command initialization*/
-	dpid = datapathid::from_host(rule.sw_id);
+	dpid = datapathid::from_host(id);
 
 	/* delete all flows on this switch */
-	struct ofl_match_standard match;
-	match.header.type = OFPMT_STANDARD;
+	struct ofp_match match;
+	match.type = OFPMT_STANDARD;
 	match.wildcards = OFPFW_ALL;
 	//    memset(match.dl_src_mask, 0xff, 6);
 	//   memset(match.dl_dst_mask, 0xff, 6);
 	match.nw_src_mask = 0xffffffff;
 	match.nw_dst_mask = 0xffffffff;
 	match.metadata_mask = 0xffffffffffffffffULL;
+	match.in_port = htonl(p_in);
 
 	/* L2 src */
 	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
-	memcpy(match.dl_src, rule.dl_src.octet, sizeof(rule.dl_src.octet));
+	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
 
 	/* L2 dst */
 	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
-	memcpy(match.dl_dst, rule.dl_dst.octet, sizeof(rule.dl_dst.octet));
+	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
+
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+			p_out, /*.max_len = */0 };
+
+	struct ofl_action_header *actions[] = {
+			(struct ofl_action_header *) &output };
+
+	struct ofl_instruction_actions apply = {
+			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */1, /*.actions = */
+			actions };
+
+	struct ofl_instruction_header *insts[] = {
+			(struct ofl_instruction_header *) &apply };
+
+	struct ofl_msg_flow_mod mod;
+	mod.header.type = OFPT_FLOW_MOD;
+	mod.cookie = htonl(cookie);
+	mod.cookie_mask = 0x00ULL;
+	mod.table_id = 0;
+	mod.command = OFPFC_ADD;
+	mod.out_port = htonl(p_out);
+	mod.out_group = 0;
+	mod.flags = 0x0000;
+	mod.match = (struct ofl_match_header *) &match;
+	mod.instructions_num = 1;
+	mod.instructions = insts;
+	mod.priority = htons(OFP_DEFAULT_PRIORITY);
+	mod.buffer_id = buf;
+	mod.hard_timeout = 0;
+	mod.idle_timeout = 0;
+
+	/* XXX OK to do non-blocking send?  We do so with all other
+	 * commands on switch join */
+	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
+			== EAGAIN) {
+		lg.err("Error, unable to clear flow table on startup");
+	}
+	return match;
+
+}
+
+int fns::remove_rule(FNSRule rule) {
+	datapathid dpid;
+
+	lg.dbg("Removing rule in %d",rule.sw_id);
+	/*OpenFlow command initialization*/
+	dpid = datapathid::from_host(rule.sw_id);
 
 	struct ofl_msg_flow_mod mod;
 	mod.header.type = OFPT_FLOW_MOD;
@@ -412,7 +390,7 @@ int fns::remove_rule(FNSRule rule) {
 	mod.out_port = OFPP_ANY;
 	mod.out_group = OFPG_ANY;
 	mod.flags = 0x0000;
-	mod.match = (struct ofl_match_header *) &match;
+	mod.match = (struct ofl_match_header *) &rule.match;
 	mod.instructions_num = 0;
 	mod.instructions = NULL;
 
@@ -479,16 +457,16 @@ int fns::remove_fns(fnsDesc* fns) {
 	/* Go to any end nodes and remove installed path */
 	lg.warn("Num of affected endpoints: %d", fns->nEp);
 	for (i = 0; i < fns->nEp; i++) {
-
-		EPoint* ep = rules->getEpoint(fns->ep[i].id, fns->ep[i].port);
+		uint64_t key = EPoint::generate_key(fns->ep[i].id, fns->ep[i].port,
+				fns->ep[i].mpls);
+		EPoint* ep = rules->getEpoint(key);
 		lg.warn("Installed rules: %d", (int) ep->installed_rules.size());
 		while (!ep->installed_rules.empty()) {
 			FNSRule rule = ep->installed_rules.back();
 			remove_rule(rule);
 			ep->installed_rules.pop_back();
 		}
-		rules->getSWEndpoint(fns->ep[i].id)->removeEpoint_fromPort(
-				fns->ep[i].port);
+		rules->removeEPoint(key);
 	}
 
 	/* Remove fns from the list and free memory*/
