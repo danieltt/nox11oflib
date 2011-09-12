@@ -95,7 +95,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	}
 
 	lg.dbg("MPLS: label:%u tc:%d", flow.match.mpls_label, flow.match.mpls_tc);
-	EPoint* ep = rules->getEpoint(EPoint::generate_key(dpid, port,
+	EPoint* ep = rules.getEpoint(EPoint::generate_key(dpid, port,
 			flow.match.mpls_label));
 
 	if (ep == NULL) {
@@ -103,12 +103,12 @@ Disposition fns::handle_packet_in(const Event& e) {
 		/*DROP packet for a given time*/
 	} else {
 		ethernetaddr dl_src = ethernetaddr(flow.match.dl_src);
-		locator->insertClient(dl_src, ep);
+		locator.insertClient(dl_src, ep);
 		/*TODO fix buffer id -1*/
 		process_packet_in(ep, &flow, b, -1);
 	}
 
-	//	locator->printLocations();
+	//	locator.printLocations();
 	return CONTINUE;
 }
 
@@ -153,7 +153,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		return;
 	}
 	/*Get location of destination*/
-	ep_dst = locator->getLocation(dl_dst);
+	ep_dst = locator.getLocation(dl_dst);
 	if (ep_dst == NULL) {
 		lg.warn("NO destination for this packet in the LOCATOR");
 		return;
@@ -180,16 +180,18 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		}
 
 		/*Conflict resolution*/
-		flow = getMatchFlow(path.at(k)->id, flow);
+		//flow = getMatchFlow(path.at(k)->id, flow);
 		/* Install rule */
-		ofp_match match = install_rule(path.at(k)->id, in_port,
+		ofp_match match;
+
+		match =install_rule(path.at(k)->id, in_port,
 				out_port, dl_src, dl_dst, buf_id);
+		lg.dbg("match in: %d",ntohl(match.in_port));
 
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
-
 		/* Install rule reverse*/
-		match = install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
+		match =install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
 				buf_id);
 
 		/* Keeping track of the installed rules */
@@ -370,6 +372,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 			== EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
+
 	return match;
 
 }
@@ -377,7 +380,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 int fns::remove_rule(FNSRule rule) {
 	datapathid dpid;
 
-	lg.dbg("Removing rule in %d",rule.sw_id);
+	lg.dbg("Removing rule in %lu, in: %d",rule.sw_id, ntohl(rule.match.in_port));
 	/*OpenFlow command initialization*/
 	dpid = datapathid::from_host(rule.sw_id);
 
@@ -432,24 +435,24 @@ Flow* fns::getMatchFlow(uint64_t id, Flow* flow) {
 
 int fns::save_fns(fnsDesc* fns1) {
 
-	fnsDesc* fns = rules->addFNS(fns1);
+	fnsDesc* fns = rules.addFNS(fns1);
 
 	printf("Name: %s\n", (char*) &fns->name);
 	printf("Num of endpoints %d\n", fns->nEp);
 	for (int i = 0; i < fns->nEp; i++) {
 		/*Save endpoints and compute path*/
 		lg.warn("Adding rule to ep: %ld : %d\n", fns->ep[i].id, fns->ep[i].port);
-		rules->addEPoint(&fns->ep[i], fns);
+		rules.addEPoint(&fns->ep[i], fns);
 	}
 	return 0;
 }
 int fns::remove_fns(fnsDesc* fns) {
 	int i;
-	printf("Removing fns with name: %s and uuid: %lu \n", (char*) &fns->name,
+	lg.warn("Removing fns with name: %s and uuid: %lu \n", (char*) &fns->name,
 			fns->uuid);
 
 	/* Search fns info */
-	fns = rules->getFNS(fns);
+	fns = rules.getFNS(fns);
 	if (fns == NULL) {
 		lg.warn("The FNS doesn't exists");
 		return -1;
@@ -459,19 +462,20 @@ int fns::remove_fns(fnsDesc* fns) {
 	for (i = 0; i < fns->nEp; i++) {
 		uint64_t key = EPoint::generate_key(fns->ep[i].id, fns->ep[i].port,
 				fns->ep[i].mpls);
-		EPoint* ep = rules->getEpoint(key);
-		lg.warn("Installed rules: %d", (int) ep->installed_rules.size());
-		while (!ep->installed_rules.empty()) {
-			FNSRule rule = ep->installed_rules.back();
+		EPoint* ep = rules.getEpoint(key);
+		lg.warn("Installed rules: %d", (int) ep->num_installed());
+		while (ep->num_installed()>0) {
+			FNSRule rule = ep->getRuleBack();
 			remove_rule(rule);
-			ep->installed_rules.pop_back();
+			ep->installed_pop();
+			//TODO fixing
 		}
-		rules->removeEPoint(key);
+		rules.removeEPoint(key);
 	}
 
 	/* Remove fns from the list and free memory*/
 	lg.warn("removing fns");
-	rules->removeFNS(fns);
+	rules.removeFNS(fns);
 
 	return 0;
 }
@@ -639,11 +643,6 @@ void fns::install() {
 			&fns::handle_datapath_leave, this, _1));
 	register_handler("Packet_in_event", boost::bind(&fns::handle_packet_in,
 			this, _1));
-
-	//Get topology instance
-	//	resolve(topo);
-	rules = new RulesDB(&finder);
-	locator = new Locator(rules);
 
 }
 

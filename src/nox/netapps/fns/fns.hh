@@ -118,8 +118,8 @@ private:
 	int sock_fd;
 	int server_port;
 	PathFinder finder;
-	RulesDB* rules;
-	Locator* locator;
+	RulesDB rules;
+	Locator locator;
 	int cookie;
 
 };

@@ -17,6 +17,11 @@
  */
 #include "rules.hh"
 
+FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
+	sw_id(sw_id) {
+	memcpy(&match, &match1,sizeof(match));
+}
+
 /*Epoint class*/
 
 EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns) :
@@ -26,6 +31,15 @@ EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns) :
 
 void EPoint::addRule(FNSRule r) {
 	installed_rules.push_back(r);
+}
+int EPoint::num_installed() {
+	return installed_rules.size();
+}
+FNSRule EPoint::getRuleBack() {
+	return installed_rules.back();
+}
+void EPoint::installed_pop() {
+	installed_rules.pop_back();
 }
 
 uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls) {
@@ -43,26 +57,24 @@ uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls) {
 	sw_id *= 0xc4ceb9fe1a85ec53;
 	sw_id ^= sw_id >> 33;
 
-	return (tmp+sw_id) % UINT64_MAX ;
+	return (tmp + sw_id) % UINT64_MAX;
 }
 
 /*RulesDB class*/
 uint64_t RulesDB::addEPoint(endpoint* ep, fnsDesc* fns) {
-	EPoint* epoint = new EPoint(ep->id, ep->port, ep->mpls, fns);
+	EPoint epoint = EPoint(ep->id, ep->port, ep->mpls, fns);
 	//	printf("Adding %ld\n",ep->id);
-	EPoint *node = getEpoint(epoint->key);
+	EPoint *node = getEpoint(epoint.key);
 	if (node == NULL) {
-		endpoints.insert(pair<uint64_t, EPoint*> (epoint->key, epoint));
-		return epoint->key;
-	}else {
+		endpoints.insert(pair<uint64_t, EPoint> (epoint.key, epoint));
+		return epoint.key;
+	} else {
 		return 0;
 	}
 }
-void RulesDB::removeEPoint(uint64_t key){
-	EPoint*ep=getEpoint(key);
+void RulesDB::removeEPoint(uint64_t key) {
 	endpoints.erase(key);
-	if (ep)
-		free(ep);
+
 }
 
 EPoint* RulesDB::getEpoint(uint64_t id) {
@@ -70,10 +82,10 @@ EPoint* RulesDB::getEpoint(uint64_t id) {
 	if (endpoints.size() == 0) {
 		return NULL;
 	}
-	map<uint64_t, EPoint*>::iterator epr = endpoints.find(id);
+	map<uint64_t, EPoint>::iterator epr = endpoints.find(id);
 	if (endpoints.end() == epr)
 		return NULL;
-	return epr->second;
+	return &epr->second;
 }
 
 fnsDesc* RulesDB::addFNS(fnsDesc* fns1) {
@@ -97,9 +109,6 @@ void RulesDB::removeFNS(fnsDesc* fns) {
 	/*Free memory*/
 	free(fns);
 }
-
-
-
 
 /**
  * Locator class

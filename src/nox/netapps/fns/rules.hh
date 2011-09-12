@@ -23,17 +23,16 @@
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
 #include "netinet++/ethernetaddr.hh"
-#include <list>
-#include <tr1/unordered_map>
+
+#include <stdio.h>
+#include <cstdlib>
 
 #include "openflow/openflow.h"
 
 using namespace std;
 class FNSRule {
 public:
-	FNSRule(uint64_t sw_id, ofp_match match) :
-		sw_id(sw_id), match(match) {
-	}
+	FNSRule(uint64_t sw_id, ofp_match match);
 	uint64_t sw_id;
 	ofp_match match;
 };
@@ -43,23 +42,24 @@ class EPoint {
 public:
 	EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns);
 	void addRule(FNSRule r);
+	int num_installed();
+	FNSRule getRuleBack();
+	void installed_pop();
 	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls);
 
-
+	uint32_t mpls;
 	uint64_t key;
 	uint64_t ep_id;
 	int in_port;
-	uint32_t mpls;
 	fns_desc *fns;
 
+private:
 	vector<FNSRule> installed_rules;
 };
 
 class RulesDB {
 public:
-	RulesDB(PathFinder*finder) :
-		finder(finder) {
-	}
+
 	uint64_t addEPoint(endpoint* ep, fnsDesc* fns);
 	EPoint* getEpoint(uint64_t key);
 	void removeEPoint(uint64_t key);
@@ -73,23 +73,18 @@ private:
 	PathFinder* finder;
 	/* Rules in memory
 	 * To be more scalable should be stored in a distributed way*/
-	map<uint64_t, EPoint*> endpoints;
+	map<uint64_t, EPoint> endpoints;
 	map<uint64_t, fnsDesc*> fnsList;
 };
 
 class Locator {
 public:
-	Locator(RulesDB* rules) :
-		rules(rules) {
-	}
-
 	bool insertClient(vigil::ethernetaddr addr, EPoint* ep);
 	EPoint* getLocation(vigil::ethernetaddr);
 	void printLocations();
 private:
 	map<vigil::ethernetaddr, EPoint*> clients;
 	bool validateAddr(vigil::ethernetaddr addr);
-	RulesDB* rules;
 
 };
 
