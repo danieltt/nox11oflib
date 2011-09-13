@@ -20,7 +20,6 @@
 #include "netinet++/ethernet.hh"
 #include <cstdlib>
 #include "fns.hh"
-#include "libnetvirt/fns-msg.h"
 #include "libnetvirt/fns.h"
 #include "../discovery/discovery.hh"
 #include "packets.h"
@@ -55,7 +54,8 @@ Disposition fns::handle_datapath_join(const Event& e) {
 #ifdef NOX_OF10
 	finder.addNode(le.datapath_id.as_host());
 #else
-	finder.addNode(le.dpid.as_host());
+	finder.addNode(le.dpid.as_host(),
+			((struct ofl_msg_features_reply *) **le.msg)->ports_num);
 #endif
 
 	/*Remove all entries*/
@@ -493,6 +493,7 @@ void fns::server() {
 	int nbytes;
 	struct timeval tv;
 	void* buf;
+	int i;
 
 	listener = socket(AF_INET, SOCK_STREAM, 0);
 	if (listener < 0) {
@@ -588,18 +589,36 @@ void fns::server() {
 			} else {
 				/* we got some data from a client*/
 				lg.dbg("New msg of size %d", nbytes);
-				struct msg_hdr *msg = (struct msg_hdr*) buf;
-				struct msg_fns *msg1;
+				struct msg_fns *msg = (struct msg_fns*) buf;
+
 				switch (msg->type) {
 				case FNS_MSG_ADD:
-					msg1 = (struct msg_fns*) buf;
-					save_fns(&msg1->fns);
+
+					save_fns(&msg->fns);
 					break;
 				case FNS_MSG_DEL:
-					msg1 = (struct msg_fns*) buf;
-					remove_fns(&msg1->fns);
 
+					remove_fns(&msg->fns);
 					break;
+				case FNS_MSG_SW_IDS: {
+					/**TODO return IDs of the endpoints and num of ports*/
+					vector<Node*> nodeFinder = finder.getNodes();
+					lg.dbg("Current nodes in the controller:");
+					int size = sizeof(struct msg_ids) + nodeFinder.size()*sizeof(endpoint);
+					struct msg_ids *msg1 = (struct msg_ids *) malloc(size);
+					memset(msg1, 0, size);
+					msg1->nEp = nodeFinder.size();
+					msg1->type = FNS_MSG_SW_IDS;
+					for (i = 0; i < nodeFinder.size(); i++) {
+						lg.dbg("ID: %lu: ports: %d", nodeFinder.at(i)->id,
+								nodeFinder.at(i)->ports);
+						msg1->endpoints[i].id = nodeFinder.at(i)->id;
+						msg1->endpoints[i].port = nodeFinder.at(i)->ports;
+					}
+					if (write(s, msg1, size) < 0)
+						lg.err("Error sending packet");
+					break;
+				}
 				default:
 					printf("Invalid message of size %d: %s\n", nbytes,
 							(char*) buf);
@@ -622,17 +641,6 @@ void fns::configure(const Configuration* c) {
 void fns::install() {
 	lg.dbg(" Install called ");
 	this->server_thread.start(boost::bind(&fns::server, this));
-	/*
-	 register_handler<Link_event> (
-	 boost::bind(&fns::handle_link_event, this, _1));
-
-	 register_handler<Packet_in_event> (boost::bind(&fns::handle_packet_in,
-	 this, _1));
-	 register_handler<Datapath_join_event> (boost::bind(
-	 &fns::handle_datapath_join, this, _1));
-	 register_handler<Datapath_leave_event> (boost::bind(
-	 &fns::handle_datapath_leave, this, _1));
-	 */
 
 	register_handler("Link_event", boost::bind(&fns::handle_link_event, this,
 			_1));

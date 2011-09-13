@@ -19,66 +19,76 @@
 #define MAX_INT 100000
 
 #include "PathFinder.hh"
-pair<int,int> Node::getPortTo(Node* node){
-//	printf("Dest %ld\n", node->id);
-	for(int i=0;i<adjacentNodes.size();i++){
-//		printf("ID: %ld p: %d\n",adjacentNodes.at(i).first->id, adjacentNodes.at(i).second->port);
-		if(adjacentNodes.at(i).first==node)
+pair<int, int> Node::getPortTo(Node* node) {
+	//	printf("Dest %ld\n", node->id);
+	for (int i = 0; i < adjacentNodes.size(); i++) {
+		//		printf("ID: %ld p: %d\n",adjacentNodes.at(i).first->id, adjacentNodes.at(i).second->port);
+		if (adjacentNodes.at(i).first == node)
 			return adjacentNodes.at(i).second->ports;
 	}
-	return pair<int,int>(-1,-1);
+	return pair<int, int> (-1, -1);
 }
 
-Node* PathFinder::addNode(uint64_t id) {
+Node* PathFinder::addNode(uint64_t id, int ports) {
 	pair<map<uint64_t, Node*>::iterator, bool> ret;
-	Node* node = new Node(id);
+	Node* node = new Node(id, ports);
 
 	ret = nodes.insert(pair<uint64_t, Node*> (id, node));
 	return ret.first->second;
 }
+vector<Node*> PathFinder::getNodes() {
+	vector<Node*> tmp;
+	map<uint64_t, Node*>::iterator it;
 
-void PathFinder::removeNode(uint64_t id){
+	for (it = nodes.begin(); it != nodes.end(); it++) {
+		tmp.push_back(it->second);
+	}
+	return tmp;
+}
+
+void PathFinder::removeNode(uint64_t id) {
 	nodes.erase(id);
 }
 
-void PathFinder::addEdge(uint64_t node1, uint64_t node2, LinkAtr* atr1, LinkAtr* atr2) {
+void PathFinder::addEdge(uint64_t node1, uint64_t node2, LinkAtr* atr1,
+		LinkAtr* atr2) {
 	Node* n1 = nodes.find(node1)->second;
 	Node* n2 = nodes.find(node2)->second;
 
-	n1->adjacentNodes.push_back(pair<Node*, LinkAtr*>(n2,atr1));
-	n2->adjacentNodes.push_back(pair<Node*, LinkAtr*>(n1,atr2));
+	n1->adjacentNodes.push_back(pair<Node*, LinkAtr*> (n2, atr1));
+	n2->adjacentNodes.push_back(pair<Node*, LinkAtr*> (n1, atr2));
 }
 
 void PathFinder::removeEdge(uint64_t node1, uint64_t node2) {
 
 }
-int  PathFinder::compute(uint64_t source) {
+int PathFinder::compute(uint64_t source) {
 	clean();
 	nodesTmp = nodes;
-	if(nodes.size()==0){
-//		printf("There are not nodes in the database\n");
+	if (nodes.size() == 0) {
+		//		printf("There are not nodes in the database\n");
 		return -1;
 	}
 
-	map<uint64_t, Node*>::iterator sNode=nodesTmp.find(source);
-	if(sNode->second->id!=source){
-//		printf("Source %ldnot found\n",source);
+	map<uint64_t, Node*>::iterator sNode = nodesTmp.find(source);
+	if (sNode->second->id != source) {
+		//		printf("Source %ldnot found\n",source);
 		return -2;
 	}
 	sNode->second->distanceFromStart = 0; // set start node
 
 	while (nodesTmp.size() > 0) {
-//	printf("Nodes size: %d\n", (int) nodesTmp.size());
+		//	printf("Nodes size: %d\n", (int) nodesTmp.size());
 		Node* smallest = ExtractSmallest();
 		vector<Node*>* adjacentNodes = AdjacentRemainingNodes(smallest);
 
 		const int size = adjacentNodes->size();
-//		printf("Adjacent nodes size: %d\n", (int) size);
+		//		printf("Adjacent nodes size: %d\n", (int) size);
 		for (int i = 0; i < size; ++i) {
 			Node* adjacent = adjacentNodes->at(i);
 			int distance = Distance(smallest, adjacent)
 					+ smallest->distanceFromStart;
-//			printf("New Distance %d\n",distance);
+			//			printf("New Distance %d\n",distance);
 			if (distance < adjacent->distanceFromStart) {
 				adjacent->distanceFromStart = distance;
 				adjacent->previous = smallest;
@@ -91,7 +101,7 @@ int  PathFinder::compute(uint64_t source) {
 
 void PathFinder::clean() {
 	map<uint64_t, Node*>::iterator it;
-	if(nodes.empty())
+	if (nodes.empty())
 		return;
 	for (it = nodes.begin(); it != nodes.end(); it++) {
 		it->second->distanceFromStart = MAX_DIST;
@@ -111,9 +121,9 @@ Node* PathFinder::ExtractSmallest() {
 	for (it = nodesTmp.begin(); it != nodesTmp.end(); it++) {
 		//	printf("Looking for smallest loop\n");
 		Node* current = it->second;
-//				printf("current id: %lu d: %d, small id: %ld d: %d\n", current->id,
-//						current->distanceFromStart, smallest->id,
-//						smallest->distanceFromStart);
+		//				printf("current id: %lu d: %d, small id: %ld d: %d\n", current->id,
+		//						current->distanceFromStart, smallest->id,
+		//						smallest->distanceFromStart);
 		if (current->distanceFromStart < smallest->distanceFromStart) {
 			smallest = current;
 
@@ -130,10 +140,10 @@ Node* PathFinder::ExtractSmallest() {
 vector<Node*>* PathFinder::AdjacentRemainingNodes(Node* node) {
 	vector<Node*>* adjacentNodes = new vector<Node*> ();
 	const int size = node->adjacentNodes.size();
-//	printf("Adjacent nodes: %d\n",size);
+	//	printf("Adjacent nodes: %d\n",size);
 	for (int i = 0; i < size; ++i) {
 		Node* adjacent = node->adjacentNodes.at(i).first;
-//		printf("Adjacent id: %d\n",adjacent->id);
+		//		printf("Adjacent id: %d\n",adjacent->id);
 		if (adjacent && Contains(adjacent->id)) {
 			adjacentNodes->push_back(adjacent);
 		}
@@ -173,10 +183,10 @@ void PathFinder::PrintShortestRouteTo(uint64_t destination) {
 	printf("\n");
 }
 
-vector<Node*> PathFinder::getPath(uint64_t destination){
+vector<Node*> PathFinder::getPath(uint64_t destination) {
 	vector<Node*> path;
 	Node* previous = nodes.find(destination)->second;
-	while(previous){
+	while (previous) {
 		path.push_back(previous);
 		previous = previous->previous;
 	}
@@ -186,22 +196,21 @@ vector<Node*> PathFinder::getPath(uint64_t destination){
 int main(int argc, char* argv[]) {
 	PathFinder finder;
 
-	finder.addNode(1);
-	finder.addNode(2);
-	finder.addNode(3);
-	finder.addNode(4);
+	finder.addNode(1,4);
+	finder.addNode(2,4);
+	finder.addNode(3,4);
+	finder.addNode(4,4);
 
-	LinkAtr* atr = new LinkAtr(1,1,1);
+	LinkAtr* atr = new LinkAtr(1, 1, 1);
 	finder.addEdge(1, 2, atr, atr);
 	finder.addEdge(2, 3, atr, atr);
 	finder.addEdge(3, 4, atr, atr);
 	finder.addEdge(4, 1, atr, atr);
 
 	/*finder.addEdge(new Edge(b, a, 1));
-	finder.addEdge(new Edge(c, b, 1));
-	finder.addEdge(new Edge(d, c, 1));
-	finder.addEdge(new Edge(d, a, 1));/*/
-
+	 finder.addEdge(new Edge(c, b, 1));
+	 finder.addEdge(new Edge(d, c, 1));
+	 finder.addEdge(new Edge(d, a, 1));/*/
 
 	printf("Computing\n");
 	finder.compute(1);
@@ -219,7 +228,6 @@ int main(int argc, char* argv[]) {
 	finder.PrintShortestRouteTo(2);
 	finder.PrintShortestRouteTo(3);
 	finder.PrintShortestRouteTo(4);
-
 
 	return 0;
 }

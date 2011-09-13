@@ -40,13 +40,14 @@ public:
 
 class Node {
 public:
-	Node(uint64_t id) :
-		id(id), previous(NULL), distanceFromStart(MAX_DIST) {
+	Node(uint64_t id,int ports) :
+		id(id), ports(ports), previous(NULL), distanceFromStart(MAX_DIST) {
 		//nodes.push_back(this);
 	}
 	pair<int, int> getPortTo(Node* node);
 
 	uint64_t id;
+	int ports;
 	Node* previous;
 	int distanceFromStart;
 	vector<pair<Node*, LinkAtr*> > adjacentNodes; /*Node, Distance*/
@@ -57,7 +58,7 @@ class PathFinder {
 public:
 	PathFinder() {
 	}
-	Node* addNode(uint64_t id);
+	Node* addNode(uint64_t id,int ports);
 	void removeNode(uint64_t id);
 	void addEdge(uint64_t node1, uint64_t node2, LinkAtr* atr1, LinkAtr* atr2);
 	void removeEdge(uint64_t node1, uint64_t node2);
@@ -65,6 +66,7 @@ public:
 	void clean();
 	void PrintShortestRouteTo(uint64_t destination);
 	vector<Node*> getPath(uint64_t destination);
+	vector<Node*> getNodes();
 
 private:
 	vector<Node*>* AdjacentRemainingNodes(Node* node);

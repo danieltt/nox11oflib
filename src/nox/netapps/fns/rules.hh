@@ -19,7 +19,6 @@
 #ifndef RULES_HH_
 #define RULES_HH_
 
-#include "libnetvirt/fns-msg.h"
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
 #include "netinet++/ethernetaddr.hh"
