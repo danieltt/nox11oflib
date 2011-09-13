@@ -115,7 +115,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		int buf_id) {
 	EPoint* ep_dst;
-
+	ofp_match match;
 	vector<Node*> path;
 	int in_port = 0, out_port = 0;
 	int psize;
@@ -181,19 +181,16 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 		/*Conflict resolution*/
 		//flow = getMatchFlow(path.at(k)->id, flow);
+
 		/* Install rule */
-		ofp_match match;
-
-		match =install_rule(path.at(k)->id, in_port,
-				out_port, dl_src, dl_dst, buf_id);
-		lg.dbg("match in: %d",ntohl(match.in_port));
-
+		match = install_rule(path.at(k)->id, in_port, out_port, dl_src, dl_dst,
+				buf_id);
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
-		/* Install rule reverse*/
-		match =install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
-				buf_id);
 
+		/* Install rule reverse*/
+		match = install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
+				buf_id);
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
 		in_port = ports.second;
@@ -319,9 +316,11 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 
 	/* delete all flows on this switch */
 	struct ofp_match match;
+	memset(&match, 0, sizeof(struct ofl_match_standard));
 	match.type = OFPMT_STANDARD;
+	//	match.header.type = OFPMT_STANDARD;
 	match.wildcards = OFPFW_ALL;
-	//    memset(match.dl_src_mask, 0xff, 6);
+	//   memset(match.dl_src_mask, 0xff, 6);
 	//   memset(match.dl_dst_mask, 0xff, 6);
 	match.nw_src_mask = 0xffffffff;
 	match.nw_dst_mask = 0xffffffff;
@@ -337,7 +336,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
 
 	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
-			p_out, /*.max_len = */0 };
+	p_out, /*.max_len = */0 };
 
 	struct ofl_action_header *actions[] = {
 			(struct ofl_action_header *) &output };
@@ -380,7 +379,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 int fns::remove_rule(FNSRule rule) {
 	datapathid dpid;
 
-	lg.dbg("Removing rule in %lu, in: %d",rule.sw_id, ntohl(rule.match.in_port));
+	lg.dbg("Removing rule in %lu", rule.sw_id);
 	/*OpenFlow command initialization*/
 	dpid = datapathid::from_host(rule.sw_id);
 
@@ -464,11 +463,10 @@ int fns::remove_fns(fnsDesc* fns) {
 				fns->ep[i].mpls);
 		EPoint* ep = rules.getEpoint(key);
 		lg.warn("Installed rules: %d", (int) ep->num_installed());
-		while (ep->num_installed()>0) {
+		while (ep->num_installed() > 0) {
 			FNSRule rule = ep->getRuleBack();
 			remove_rule(rule);
 			ep->installed_pop();
-			//TODO fixing
 		}
 		rules.removeEPoint(key);
 	}

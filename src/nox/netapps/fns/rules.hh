@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <cstdlib>
 
-#include "openflow/openflow.h"
+#include "noxdetect.hh"
 
 using namespace std;
 class FNSRule {
