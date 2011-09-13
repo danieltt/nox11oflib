@@ -19,7 +19,7 @@
 
 FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 	sw_id(sw_id) {
-	memcpy(&match, &match1, OFPMT_STANDARD_LENGTH);
+	memcpy(&match, &match1, sizeof(match));
 }
 
 /*Epoint class*/

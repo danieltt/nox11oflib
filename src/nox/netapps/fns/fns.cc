@@ -73,6 +73,7 @@ Disposition fns::handle_datapath_leave(const Event& e) {
 Disposition fns::handle_packet_in(const Event& e) {
 	uint64_t dpid;
 	int port;
+	uint32_t mpls = 0;
 #ifdef NOX_OF10
 	const Packet_in_event& pi = assert_cast<const Packet_in_event&> (e);
 	const Buffer& b = *pi.get_buffer();
@@ -86,7 +87,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	Flow flow(in->in_port, b);
 	dpid = ome.dpid.as_host();
 	port = in->in_port;
-
+	mpls = flow.match.mpls_label;
 #endif
 
 	/* drop all LLDP packets */
@@ -94,9 +95,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		return CONTINUE;
 	}
 
-	lg.dbg("MPLS: label:%u tc:%d", flow.match.mpls_label, flow.match.mpls_tc);
-	EPoint* ep = rules.getEpoint(EPoint::generate_key(dpid, port,
-			flow.match.mpls_label));
+	EPoint* ep = rules.getEpoint(EPoint::generate_key(dpid, port, mpls));
 
 	if (ep == NULL) {
 		lg.dbg("No rules for this endpoint: %ld:%d", dpid, port);
@@ -199,7 +198,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 }
 #ifdef NOX_OF10
-int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
+ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	datapathid src;
 	ofp_action_list actlist;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s dst: %s\n", id, p_in,
@@ -257,7 +256,7 @@ int fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
 	/*Send command*/
 	send_openflow_command(src, &ofm->header, true);
 	cookie++;
-	return 0;
+	return *ofm->match;
 }
 
 int fns::remove_rule(FNSRule rule) {
@@ -277,7 +276,9 @@ int fns::remove_rule(FNSRule rule) {
 	ofm->header.type = OFPT_FLOW_MOD;
 
 	ofm->header.length = htons(size);
+	memcpy(ofm->match,rule.match,sizeof(rule.match));
 	/*WILD cards*/
+
 	uint32_t filter = OFPFW_ALL;
 	/*Filter by port*/
 	filter &= (~OFPFW_IN_PORT);
