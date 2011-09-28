@@ -37,35 +37,52 @@ public:
 };
 
 
+
 class EPoint {
 public:
-	EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns);
+	EPoint(uint64_t ep_id, int in_port, uint32_t mpls, uint64_t fns_uuid);
 	void addRule(FNSRule r);
 	int num_installed();
 	FNSRule getRuleBack();
 	void installed_pop();
 	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls);
 
-	uint32_t mpls;
+
 	uint64_t key;
 	uint64_t ep_id;
 	int in_port;
-	fns_desc *fns;
+	uint32_t mpls;
+	uint64_t fns_uuid;
 
 private:
 	vector<FNSRule> installed_rules;
 };
 
+class FNS{
+public:
+	FNS(uint64_t uuid);
+	uint64_t getUuid();
+	int numEPoints();
+	void addEPoint(EPoint* ep);
+	int removeEPoint(EPoint* ep);
+	EPoint* getEPoint(int pos);
+
+private:
+	uint64_t uuid;
+	vector<EPoint*> epoints;
+};
+
+
 class RulesDB {
 public:
 
-	uint64_t addEPoint(endpoint* ep, fnsDesc* fns);
+	uint64_t addEPoint(endpoint* ep, FNS* fns);
 	EPoint* getEpoint(uint64_t key);
 	void removeEPoint(uint64_t key);
 
-	fnsDesc* addFNS(fnsDesc* fns);
-	void removeFNS(fnsDesc* fns);
-	fnsDesc* getFNS(fnsDesc* fns);
+	FNS* addFNS(fnsDesc* fns);
+	void removeFNS(uint64_t uuid);
+	FNS* getFNS(uint64_t uuid);
 
 
 private:
@@ -73,7 +90,7 @@ private:
 	/* Rules in memory
 	 * To be more scalable should be stored in a distributed way*/
 	map<uint64_t, EPoint> endpoints;
-	map<uint64_t, fnsDesc*> fnsList;
+	map<uint64_t, FNS> fnsList;
 };
 
 class Locator {

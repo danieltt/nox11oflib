@@ -100,7 +100,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 #ifdef NOX_OF10
 	if (flow.dl_type == ethernet::LLDP) {
 #else
-		if (flow.match.dl_type == LLDP_TYPE) {
+	if (flow.match.dl_type == LLDP_TYPE) {
 #endif
 		return CONTINUE;
 	}
@@ -129,25 +129,26 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	int psize;
 	buf_id = -1;
 	pair<int, int> ports;
-	fnsDesc* fns = ep_src->fns;
+	FNS* fns = rules.getFNS(ep_src->fns_uuid);
 
-	lg.dbg("Processing and installing rule for %ld:%d in fns: %s\n",
-			ep_src->ep_id, ep_src->in_port, fns->name);
+	lg.dbg("Processing and installing rule for %ld:%d in fns: %ld\n",
+			ep_src->ep_id, ep_src->in_port, fns->getUuid());
 	/* Is destination broadcast address and ARP?*/
 #ifdef NOX_OF10
 	ethernetaddr dl_dst = ethernetaddr(flow->dl_dst);
 	ethernetaddr dl_src = ethernetaddr(flow->dl_src);
 	if (flow->dl_dst.is_broadcast() && flow->dl_type == ethernet::ARP) {
 #else
-		ethernetaddr dl_dst = ethernetaddr(flow->match.dl_dst);
-		ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
-		if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
+	ethernetaddr dl_dst = ethernetaddr(flow->match.dl_dst);
+	ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
+	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
 #endif
 		/*Send to all endpoints of the fns*/
-		lg.warn("Sending ARP broadcast msg");
-		for (int j = 0; j < fns->nEp; j++) {
-			if (fns->ep[j].id != ep_src->ep_id)
-				forward_via_controller(fns->ep[j].id, buff, fns->ep[j].port);
+		lg.warn("Sending ARP broadcast");
+		for (int j = 0; j < fns->numEPoints(); j++) {
+			EPoint* ep = fns->getEPoint(j);
+			if (ep->key != ep_src->key)
+				forward_via_controller(ep->ep_id, buff, ep->in_port);
 		}
 		return;
 	}
@@ -205,7 +206,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 }
 #ifdef NOX_OF10
-ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf){
+ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
 	datapathid src;
 	ofp_action_list actlist;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s dst: %s\n", id, p_in,
@@ -325,18 +326,18 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
 	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
 
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output};
+			(struct ofl_action_header *) &output };
 
 	struct ofl_instruction_actions apply = {
-		{/*.type = */OFPIT_WRITE_ACTIONS}, /*.actions_num = */1, /*.actions = */
-		actions};
+			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */1, /*.actions = */
+			actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	struct ofl_msg_flow_mod mod;
 	mod.header.type = OFPT_FLOW_MOD;
@@ -422,48 +423,89 @@ Flow* fns::getMatchFlow(uint64_t id, Flow* flow) {
 	return flow;
 }
 
-int fns::save_fns(fnsDesc* fns1) {
-
-	fnsDesc* fns = rules.addFNS(fns1);
-
-	printf("Name: %s\n", (char*) &fns->name);
-	printf("Num of endpoints %d\n", fns->nEp);
-	for (int i = 0; i < fns->nEp; i++) {
-		/*Save endpoints and compute path*/
-		lg.warn("Adding rule to ep: %ld : %d\n", fns->ep[i].id, fns->ep[i].port);
-		rules.addEPoint(&fns->ep[i], fns);
-	}
-	return 0;
-}
-int fns::remove_fns(fnsDesc* fns) {
-	int i;
-	lg.warn("Removing fns with name: %s and uuid: %lu \n", (char*) &fns->name,
-			fns->uuid);
-
-	/* Search fns info */
-	fns = rules.getFNS(fns);
+int fns::mod_fns_add(fnsDesc* fns1) {
+	FNS* fns = rules.getFNS(fns1->uuid);
 	if (fns == NULL) {
 		lg.warn("The FNS doesn't exists");
 		return -1;
 	}
+	printf("Num of endpoints %d\n", fns1->nEp);
+	for (int i = 0; i < fns1->nEp; i++) {
+		/*Save endpoints and compute path*/
+		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,
+				fns1->ep[i].port);
+		rules.addEPoint(&fns1->ep[i], fns);
+	}
+	return 0;
+}
+int fns::mod_fns_del(fnsDesc* fns1) {
+	FNS* fns = rules.getFNS(fns1->uuid);
+	if (fns == NULL) {
+		lg.warn("The FNS doesn't exist");
+		return -1;
+	}
+	lg.warn("Num of affected endpoints: %d", fns1->nEp);
+	for (int i = 0; i < fns1->nEp; i++) {
+		remove_endpoint(&fns1->ep[i],fns);
+
+	}
+	return 0;
+}
+
+int fns::remove_endpoint(endpoint *epd, FNS* fns) {
+	uint64_t key = EPoint::generate_key(epd->id, epd->port, epd->mpls);
+	EPoint* ep = rules.getEpoint(key);
+	return remove_endpoint(ep, fns);
+
+}
+int fns::remove_endpoint(EPoint *ep, FNS *fns) {
+	if (ep == NULL) {
+		lg.warn("The EndPoint doesn't exist");
+		return -1;
+	}
+	lg.warn("Installed rules: %d", (int) ep->num_installed());
+	while (ep->num_installed() > 0) {
+		FNSRule rule = ep->getRuleBack();
+		remove_rule(rule);
+		ep->installed_pop();
+	}
+	lg.dbg("Removing EPoint");
+	fns->removeEPoint(ep);
+	rules.removeEPoint(ep->key);
+	lg.dbg("Done");
+	return 0;
+}
+int fns::save_fns(fnsDesc* fns1) {
+
+	FNS* fns = rules.addFNS(fns1);
+
+	printf("Num of endpoints %d\n", fns->numEPoints());
+	for (int i = 0; i < fns1->nEp; i++) {
+		/*Save endpoints and compute path*/
+		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,
+				fns1->ep[i].port);
+		rules.addEPoint(&fns1->ep[i], fns);
+	}
+	return 0;
+}
+int fns::remove_fns(fnsDesc* fns1) {
+	FNS* fns = rules.getFNS(fns1->uuid);
+
+	lg.warn("Removing fns with uuid: %lu \n", fns->getUuid());
+	if (fns == NULL) {
+		lg.warn("The FNS doesn't exists");
+		return -1;
+	}
+
 	/* Go to any end nodes and remove installed path */
-	lg.warn("Num of affected endpoints: %d", fns->nEp);
-	for (i = 0; i < fns->nEp; i++) {
-		uint64_t key = EPoint::generate_key(fns->ep[i].id, fns->ep[i].port,
-				fns->ep[i].mpls);
-		EPoint* ep = rules.getEpoint(key);
-		lg.warn("Installed rules: %d", (int) ep->num_installed());
-		while (ep->num_installed() > 0) {
-			FNSRule rule = ep->getRuleBack();
-			remove_rule(rule);
-			ep->installed_pop();
-		}
-		rules.removeEPoint(key);
+	lg.warn("Num of affected endpoints: %d", fns->numEPoints());
+	while(fns->numEPoints()>0) {
+		remove_endpoint(fns->getEPoint(0),fns);
 	}
 
 	/* Remove fns from the list and free memory*/
 	lg.warn("removing fns");
-	rules.removeFNS(fns);
+	rules.removeFNS(fns->getUuid());
 
 	return 0;
 }
@@ -581,12 +623,16 @@ void fns::server() {
 				struct msg_fns *msg = (struct msg_fns*) buf;
 
 				switch (msg->type) {
+				case FNS_MSG_MOD_ADD:
+					mod_fns_add(&msg->fns);
+					break;
+				case FNS_MSG_MOD_DEL:
+					mod_fns_del(&msg->fns);
+					break;
 				case FNS_MSG_ADD:
-
 					save_fns(&msg->fns);
 					break;
 				case FNS_MSG_DEL:
-
 					remove_fns(&msg->fns);
 					break;
 				case FNS_MSG_SW_IDS: {

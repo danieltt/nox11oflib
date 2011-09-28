@@ -36,7 +36,6 @@
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
 
-
 #ifdef LOG4CXX_ENABLED
 #include <boost/format.hpp>
 #include "log4cxx/logger.h"
@@ -76,10 +75,12 @@ public:
 
 	void server();
 
-	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff, int buf_id);
+	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff,
+			int buf_id);
 	void forward_via_controller(uint64_t id, const Buffer& buff, int port);
 
-	ofp_match install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
+	ofp_match install_rule(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
 #ifdef NOX_OF11
 	int install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag);
 #endif
@@ -87,6 +88,10 @@ public:
 
 	int save_fns(fnsDesc* fns);
 	int remove_fns(fnsDesc* fns);
+	int mod_fns_add(fnsDesc* fns);
+	int mod_fns_del(fnsDesc* fns);
+	int remove_endpoint(endpoint* epd, FNS* fns);
+	int remove_endpoint(EPoint *ep, FNS* fns);
 
 	Flow* getMatchFlow(uint64_t id, Flow* flow);
 

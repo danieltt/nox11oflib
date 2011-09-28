@@ -16,6 +16,7 @@
  * along with NOX.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "rules.hh"
+#include <algorithm> // remove and remove_if
 
 FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 	sw_id(sw_id) {
@@ -24,8 +25,8 @@ FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 
 /*Epoint class*/
 
-EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, fns_desc* fns) :
-	ep_id(ep_id), in_port(in_port), mpls(mpls), fns(fns) {
+EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, uint64_t fns_uuid) :
+	ep_id(ep_id), in_port(in_port), mpls(mpls), fns_uuid(fns_uuid) {
 	key = generate_key(ep_id, in_port, mpls);
 }
 
@@ -60,20 +61,50 @@ uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls) {
 	return (tmp + sw_id) % UINT64_MAX;
 }
 
+FNS::FNS(uint64_t uuid) :
+	uuid(uuid) {
+
+}
+
+uint64_t FNS::getUuid() {
+	return uuid;
+}
+
+void FNS::addEPoint(EPoint* ep) {
+	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
+	epoints.push_back(ep);
+}
+
+int FNS::removeEPoint(EPoint* ep) {
+	epoints.erase(std::remove(epoints.begin(), epoints.end(), ep), epoints.end());
+
+	return 0;
+}
+
+int FNS::numEPoints() {
+	return epoints.size();
+}
+EPoint* FNS::getEPoint(int pos) {
+	return epoints.at(pos);
+}
+
 /*RulesDB class*/
-uint64_t RulesDB::addEPoint(endpoint* ep, fnsDesc* fns) {
-	EPoint epoint = EPoint(ep->id, ep->port, ep->mpls, fns);
+uint64_t RulesDB::addEPoint(endpoint* ep, FNS* fns) {
+	EPoint epoint = EPoint(ep->id, ep->port, ep->mpls, fns->getUuid());
 	//	printf("Adding %ld\n",ep->id);
 	EPoint *node = getEpoint(epoint.key);
 	if (node == NULL) {
 		endpoints.insert(pair<uint64_t, EPoint> (epoint.key, epoint));
+		fns->addEPoint(getEpoint(epoint.key));
 		return epoint.key;
 	} else {
 		return 0;
 	}
 }
 void RulesDB::removeEPoint(uint64_t key) {
+	printf("Before removing: %d\n", endpoints.size());
 	endpoints.erase(key);
+	printf("After removing: %d\n", endpoints.size());
 
 }
 
@@ -88,26 +119,26 @@ EPoint* RulesDB::getEpoint(uint64_t id) {
 	return &epr->second;
 }
 
-fnsDesc* RulesDB::addFNS(fnsDesc* fns1) {
-	fnsDesc *fns = (fnsDesc *) malloc(sizeof(fnsDesc));
-	/*When removing look for all the references*/
-	memcpy(fns, fns1, sizeof(fnsDesc));
-	fnsList.insert(pair<uint64_t, fnsDesc*> (fns->uuid, fns));
-	return fns;
+FNS* RulesDB::addFNS(fnsDesc* fns1) {
+
+	FNS fns(fns1->uuid);
+	//	for (int i = 0; i < fns1->nEp; i++) {
+	//		fns.addEPoint(fns1->ep[i]);
+	//	}
+	fnsList.insert(pair<uint64_t, FNS> (fns1->uuid, fns));
+	return getFNS(fns1->uuid);
 }
 
-fnsDesc* RulesDB::getFNS(fnsDesc* fns) {
-	map<uint64_t, fnsDesc*>::iterator fns1 = fnsList.find(fns->uuid);
+FNS* RulesDB::getFNS(uint64_t uuid) {
+	map<uint64_t, FNS>::iterator fns1 = fnsList.find(uuid);
 	if (fnsList.end() == fns1)
 		return NULL;
-	return fns1->second;
+	return &fns1->second;
 }
 
-void RulesDB::removeFNS(fnsDesc* fns) {
+void RulesDB::removeFNS(uint64_t uuid) {
+	fnsList.erase(uuid);
 
-	fnsList.erase(fns->uuid);
-	/*Free memory*/
-	free(fns);
 }
 
 /**
