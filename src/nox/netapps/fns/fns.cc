@@ -23,11 +23,12 @@
 #include "libnetvirt/fns.h"
 
 #include "packets.h"
+#define TIMEOUT_DEF 0
 
 #ifdef NOX_OF10
 #include "openflow-action.hh"
 #include "packet-in.hh"
-#define TIMEOUT_DEF 0
+
 #else
 #include "../discovery/discovery.hh"
 #endif
@@ -159,12 +160,21 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		printf("error computing path\n");
 		return;
 	}
+
 	/*Get location of destination*/
 	ep_dst = locator.getLocation(dl_dst);
 	if (ep_dst == NULL) {
 		lg.warn("NO destination for this packet in the LOCATOR");
 		return;
 	}
+
+	/*Check that the endpoint is valid: ISOLATION*/
+	lg.dbg("Checking isolation");
+	if(ep_dst->fns_uuid != ep_src->fns_uuid){
+		lg.warn("Destination not in the FNS");
+		return;
+	}
+
 	/*Get shortest path*/
 	//	finder.PrintShortestRouteTo(ep_dst->ep_id);
 	path = finder.getPath(ep_dst->ep_id);
@@ -241,8 +251,8 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetadd
 	/*Some more parameters*/
 	ofm->cookie = htonl(cookie);
 	ofm->command = htons(OFPFC_ADD);
-	//	ofm->hard_timeout = htons(0);
-	ofm->hard_timeout = htons(TIMEOUT_DEF);
+	ofm->hard_timeout = htons(0);
+	ofm->idle_timeout = htons(TIMEOUT_DEF);
 	ofm->priority = htons(OFP_DEFAULT_PRIORITY);
 	ofm->flags = ofd_flow_mod_flags();
 
@@ -354,7 +364,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	mod.priority = htons(OFP_DEFAULT_PRIORITY);
 	mod.buffer_id = buf;
 	mod.hard_timeout = 0;
-	mod.idle_timeout = 0;
+	mod.idle_timeout = TIMEOUT_DEF;
 
 	/* XXX OK to do non-blocking send?  We do so with all other
 	 * commands on switch join */

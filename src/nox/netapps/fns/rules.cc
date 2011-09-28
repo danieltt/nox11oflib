@@ -76,6 +76,7 @@ void FNS::addEPoint(EPoint* ep) {
 }
 
 int FNS::removeEPoint(EPoint* ep) {
+	ep->fns_uuid = 0;
 	epoints.erase(std::remove(epoints.begin(), epoints.end(), ep), epoints.end());
 
 	return 0;
