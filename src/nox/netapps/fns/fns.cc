@@ -21,13 +21,15 @@
 #include <cstdlib>
 #include "fns.hh"
 #include "libnetvirt/fns.h"
-#include "../discovery/discovery.hh"
+
 #include "packets.h"
 
 #ifdef NOX_OF10
 #include "openflow-action.hh"
 #include "packet-in.hh"
 #define TIMEOUT_DEF 0
+#else
+#include "../discovery/discovery.hh"
 #endif
 
 namespace vigil {
@@ -52,7 +54,7 @@ Disposition fns::handle_datapath_join(const Event& e) {
 	const Datapath_join_event& le = assert_cast<const Datapath_join_event&> (e);
 
 #ifdef NOX_OF10
-	finder.addNode(le.datapath_id.as_host());
+	finder.addNode(le.datapath_id.as_host(), le.ports.size());
 #else
 	finder.addNode(le.dpid.as_host(),
 			((struct ofl_msg_features_reply *) **le.msg)->ports_num);
@@ -74,12 +76,15 @@ Disposition fns::handle_packet_in(const Event& e) {
 	uint64_t dpid;
 	int port;
 	uint32_t mpls = 0;
+	ethernetaddr dl_src;
+
 #ifdef NOX_OF10
 	const Packet_in_event& pi = assert_cast<const Packet_in_event&> (e);
 	const Buffer& b = *pi.get_buffer();
 	Flow flow(pi.in_port, b);
 	dpid = pi.datapath_id.as_host();
 	port = pi.in_port;
+	dl_src = ethernetaddr(flow.dl_src);
 #else
 	const Ofp_msg_event& ome = assert_cast<const Ofp_msg_event&> (e);
 	struct ofl_msg_packet_in *in = (struct ofl_msg_packet_in *) **ome.msg;
@@ -88,10 +93,15 @@ Disposition fns::handle_packet_in(const Event& e) {
 	dpid = ome.dpid.as_host();
 	port = in->in_port;
 	mpls = flow.match.mpls_label;
+	dl_src = ethernetaddr(flow.match.dl_src);
 #endif
 
 	/* drop all LLDP packets */
-	if (flow.match.dl_type == LLDP_TYPE) {
+#ifdef NOX_OF10
+	if (flow.dl_type == ethernet::LLDP) {
+#else
+		if (flow.match.dl_type == LLDP_TYPE) {
+#endif
 		return CONTINUE;
 	}
 
@@ -101,7 +111,6 @@ Disposition fns::handle_packet_in(const Event& e) {
 		lg.dbg("No rules for this endpoint: %ld:%d", dpid, port);
 		/*DROP packet for a given time*/
 	} else {
-		ethernetaddr dl_src = ethernetaddr(flow.match.dl_src);
 		locator.insertClient(dl_src, ep);
 		/*TODO fix buffer id -1*/
 		process_packet_in(ep, &flow, b, -1);
@@ -122,20 +131,18 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	pair<int, int> ports;
 	fnsDesc* fns = ep_src->fns;
 
-	/* Is destination broadcast address and ARP?*/
-	/* TODO with OF1.1 should be possible to send the packets
-	 *  to the endpoint using the network
-	 *  Install the rules like multicast
-	 *
-	 *  Currently we use the controller channel to forward the ARP packets.
-	 */
-	ethernetaddr dl_dst = ethernetaddr(flow->match.dl_dst);
-	ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
-
 	lg.dbg("Processing and installing rule for %ld:%d in fns: %s\n",
 			ep_src->ep_id, ep_src->in_port, fns->name);
-
-	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
+	/* Is destination broadcast address and ARP?*/
+#ifdef NOX_OF10
+	ethernetaddr dl_dst = ethernetaddr(flow->dl_dst);
+	ethernetaddr dl_src = ethernetaddr(flow->dl_src);
+	if (flow->dl_dst.is_broadcast() && flow->dl_type == ethernet::ARP) {
+#else
+		ethernetaddr dl_dst = ethernetaddr(flow->match.dl_dst);
+		ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
+		if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
+#endif
 		/*Send to all endpoints of the fns*/
 		lg.warn("Sending ARP broadcast msg");
 		for (int j = 0; j < fns->nEp; j++) {
@@ -198,11 +205,11 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 }
 #ifdef NOX_OF10
-ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int buf) {
+ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf){
 	datapathid src;
 	ofp_action_list actlist;
 	lg.warn("Installing new path: %ld: %d -> %d | src: %s dst: %s\n", id, p_in,
-			p_out, flow->dl_src.string().c_str(), flow->dl_dst.string().c_str());
+			p_out, dl_src.string().c_str(), dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
 	ofp_flow_mod* ofm;
@@ -221,20 +228,14 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int bu
 	uint32_t filter = OFPFW_ALL;
 	/*Filter by port*/
 	filter &= (~OFPFW_IN_PORT);
-	if (!flow->dl_src.is_zero()) {
-		filter &= (~OFPFW_DL_SRC);
-		memcpy(ofm->match.dl_src, flow->dl_src.octet,
-				sizeof(flow->dl_src.octet));
-	}
-	if (!flow->dl_dst.is_zero()) {
-		filter &= (~OFPFW_DL_DST);
-		memcpy(ofm->match.dl_dst, flow->dl_dst.octet,
-				sizeof(flow->dl_dst.octet));
-	}
+	filter &= (~OFPFW_DL_SRC);
+	memcpy(ofm->match.dl_src, dl_src.octet, sizeof(dl_src.octet));
+
+	filter &= (~OFPFW_DL_DST);
+	memcpy(ofm->match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
 
 	ofm->match.wildcards = htonl(filter);
 	ofm->match.in_port = htons(p_in);
-	//	memcpy(ofm->match.dl_dst, r->getDlDst().octet, sizeof(r->getDlDst().octet));
 
 	/*Some more parameters*/
 	ofm->cookie = htonl(cookie);
@@ -256,7 +257,7 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out, Flow* flow, int bu
 	/*Send command*/
 	send_openflow_command(src, &ofm->header, true);
 	cookie++;
-	return *ofm->match;
+	return ofm->match;
 }
 
 int fns::remove_rule(FNSRule rule) {
@@ -276,20 +277,8 @@ int fns::remove_rule(FNSRule rule) {
 	ofm->header.type = OFPT_FLOW_MOD;
 
 	ofm->header.length = htons(size);
-	memcpy(ofm->match,rule.match,sizeof(rule.match));
-	/*WILD cards*/
+	memcpy(&ofm->match, &rule.match, sizeof(rule.match));
 
-	uint32_t filter = OFPFW_ALL;
-	/*Filter by port*/
-	filter &= (~OFPFW_IN_PORT);
-	filter &= (~OFPFW_DL_SRC);
-	memcpy(ofm->match.dl_src, rule.dl_src.octet, sizeof(rule.dl_src.octet));
-
-	filter &= (~OFPFW_DL_DST);
-	memcpy(ofm->match.dl_dst, rule.dl_dst.octet, sizeof(rule.dl_dst.octet));
-
-	ofm->match.wildcards = htonl(filter);
-	ofm->match.in_port = htons(rule.in_port);
 	ofm->command = htons(OFPFC_DELETE);
 	ofm->out_port = OFPP_NONE;
 	ofm->hard_timeout = 0;
@@ -336,18 +325,18 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
 	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
 
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
-	p_out, /*.max_len = */0 };
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
+		p_out, /*.max_len = */0};
 
 	struct ofl_action_header *actions[] = {
-			(struct ofl_action_header *) &output };
+		(struct ofl_action_header *) &output};
 
 	struct ofl_instruction_actions apply = {
-			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */1, /*.actions = */
-			actions };
+		{/*.type = */OFPIT_WRITE_ACTIONS}, /*.actions_num = */1, /*.actions = */
+		actions};
 
 	struct ofl_instruction_header *insts[] = {
-			(struct ofl_instruction_header *) &apply };
+		(struct ofl_instruction_header *) &apply};
 
 	struct ofl_msg_flow_mod mod;
 	mod.header.type = OFPT_FLOW_MOD;
@@ -604,7 +593,8 @@ void fns::server() {
 					/**TODO return IDs of the endpoints and num of ports*/
 					vector<Node*> nodeFinder = finder.getNodes();
 					lg.dbg("Current nodes in the controller:");
-					int size = sizeof(struct msg_ids) + nodeFinder.size()*sizeof(endpoint);
+					int size = sizeof(struct msg_ids) + nodeFinder.size()
+							* sizeof(endpoint);
 					struct msg_ids *msg1 = (struct msg_ids *) malloc(size);
 					memset(msg1, 0, size);
 					msg1->nEp = nodeFinder.size();
