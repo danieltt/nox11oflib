@@ -439,7 +439,6 @@ int fns::mod_fns_add(fnsDesc* fns1) {
 		lg.warn("The FNS doesn't exists");
 		return -1;
 	}
-	printf("Num of endpoints %d\n", fns1->nEp);
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
 		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,
@@ -489,7 +488,6 @@ int fns::save_fns(fnsDesc* fns1) {
 
 	FNS* fns = rules.addFNS(fns1);
 
-	printf("Num of endpoints %d\n", fns->numEPoints());
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
 		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,

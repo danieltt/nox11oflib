@@ -71,7 +71,7 @@ uint64_t FNS::getUuid() {
 }
 
 void FNS::addEPoint(EPoint* ep) {
-	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
+//	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
 	epoints.push_back(ep);
 }
 
@@ -103,10 +103,7 @@ uint64_t RulesDB::addEPoint(endpoint* ep, FNS* fns) {
 	}
 }
 void RulesDB::removeEPoint(uint64_t key) {
-	printf("Before removing: %d\n", endpoints.size());
 	endpoints.erase(key);
-	printf("After removing: %d\n", endpoints.size());
-
 }
 
 EPoint* RulesDB::getEpoint(uint64_t id) {
@@ -121,7 +118,6 @@ EPoint* RulesDB::getEpoint(uint64_t id) {
 }
 
 FNS* RulesDB::addFNS(fnsDesc* fns1) {
-
 	FNS fns(fns1->uuid);
 	//	for (int i = 0; i < fns1->nEp; i++) {
 	//		fns.addEPoint(fns1->ep[i]);
