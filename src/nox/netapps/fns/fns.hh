@@ -81,9 +81,11 @@ public:
 
 	ofp_match install_rule(uint64_t id, int p_in, int p_out,
 			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
-#ifdef NOX_OF11
-	int install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag);
-#endif
+	ofp_match install_rule_tag(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf,
+			uint32_t tag);
+	ofp_match install_rule_tag_pop(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
 	int remove_rule(FNSRule rule);
 
 	int save_fns(fnsDesc* fns);

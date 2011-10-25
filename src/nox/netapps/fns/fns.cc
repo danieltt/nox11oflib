@@ -76,7 +76,7 @@ Disposition fns::handle_datapath_leave(const Event& e) {
 Disposition fns::handle_packet_in(const Event& e) {
 	uint64_t dpid;
 	int port;
-	uint32_t mpls = 0;
+	uint32_t vlan = OFPVID_NONE;
 	ethernetaddr dl_src;
 
 #ifdef NOX_OF10
@@ -86,6 +86,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	dpid = pi.datapath_id.as_host();
 	port = pi.in_port;
 	dl_src = ethernetaddr(flow.dl_src);
+	vlan = flow.dl_vlan;
 #else
 	const Ofp_msg_event& ome = assert_cast<const Ofp_msg_event&> (e);
 	struct ofl_msg_packet_in *in = (struct ofl_msg_packet_in *) **ome.msg;
@@ -93,7 +94,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	Flow flow(in->in_port, b);
 	dpid = ome.dpid.as_host();
 	port = in->in_port;
-	mpls = flow.match.mpls_label;
+	vlan = flow.match.dl_vlan;
 	dl_src = ethernetaddr(flow.match.dl_src);
 #endif
 
@@ -106,10 +107,12 @@ Disposition fns::handle_packet_in(const Event& e) {
 		return CONTINUE;
 	}
 
-	EPoint* ep = rules.getEpoint(EPoint::generate_key(dpid, port, mpls));
+	uint64_t key = EPoint::generate_key(dpid, port, vlan);
+	EPoint* ep = rules.getEpoint(key);
 
 	if (ep == NULL) {
-		lg.dbg("No rules for this endpoint: %ld:%d", dpid, port);
+		lg.dbg("No rules for this endpoint: %ld:%d %d %lu", dpid, port, vlan,
+				key);
 		/*DROP packet for a given time*/
 	} else {
 		locator.insertClient(dl_src, ep);
@@ -170,7 +173,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 	/*Check that the endpoint is valid: ISOLATION*/
 	lg.dbg("Checking isolation");
-	if(ep_dst->fns_uuid != ep_src->fns_uuid){
+	if (ep_dst->fns_uuid != ep_src->fns_uuid) {
 		lg.warn("Destination not in the FNS");
 		return;
 	}
@@ -181,6 +184,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	psize = path.size();
 
 	/*Install specific rules with src and destination L2*/
+	lg.dbg("VLAN src: %d dst: %d", ep_src->vlan, ep_dst->vlan);
 	for (int k = psize - 1; k >= 0; k--) {
 		if (psize == 1) {
 			/*Endpoint in the same node*/
@@ -199,17 +203,53 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/*Conflict resolution*/
 		//flow = getMatchFlow(path.at(k)->id, flow);
 
-		/* Install rule */
-		match = install_rule(path.at(k)->id, in_port, out_port, dl_src, dl_dst,
-				buf_id);
+
+		/*dst node and no expect vlan*/
+		if (k == 0 && ep_dst->vlan == OFPVID_NONE && ep_src->vlan
+				!= OFPVID_NONE) {
+			/*pop vlan*/
+			match = install_rule_tag_pop(path.at(k)->id, in_port, out_port,
+					dl_src, dl_dst, buf_id);
+		} else if (k == 0 && ep_dst->vlan != OFPVID_NONE && ep_src->vlan
+				== OFPVID_NONE) {
+			/*push vlan*/
+			match = install_rule_tag(path.at(k)->id, in_port, out_port, dl_src,
+					dl_dst, buf_id, ep_dst->vlan);
+		} else if (k == 0 && ep_dst->vlan != ep_src->vlan && ep_src->vlan
+				!= OFPVID_NONE) {
+			/*change vlan*/
+		} else {
+			/*none*/
+			match = install_rule(path.at(k)->id, in_port, out_port, dl_src,
+					dl_dst, buf_id);
+		}
+
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
 
-		/* Install rule reverse*/
-		match = install_rule(path.at(k)->id, out_port, in_port, dl_dst, dl_src,
-				buf_id);
+		if ((k == path.size() - 1) && (ep_src->vlan == OFPVID_NONE)
+				&& (ep_dst->vlan != OFPVID_NONE)) {
+			/*src node*/
+
+			/*pop vlan*/
+			match = install_rule_tag_pop(path.at(k)->id, out_port, in_port,
+					dl_src, dl_dst, buf_id);
+		} else if ((k == path.size() - 1) && ep_src->vlan != OFPVID_NONE
+				&& ep_dst->vlan == OFPVID_NONE) {
+			/*push vlan*/
+			match = install_rule_tag(path.at(k)->id, out_port, in_port, dl_src,
+					dl_dst, buf_id, ep_src->vlan);
+		} else if ((k == path.size() - 1) && ep_dst->vlan != ep_src->vlan
+				&& ep_src->vlan != OFPVID_NONE) {
+			/*change vlan*/
+		} else {
+			/*none*/
+			match = install_rule(path.at(k)->id, out_port, in_port, dl_dst,
+					dl_src, buf_id);
+		}
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
+
 		in_port = ports.second;
 
 	}
@@ -315,7 +355,6 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	/*OpenFlow command initialization*/
 	dpid = datapathid::from_host(id);
 
-	/* delete all flows on this switch */
 	struct ofp_match match;
 	memset(&match, 0, sizeof(struct ofl_match_standard));
 	match.type = OFPMT_STANDARD;
@@ -377,6 +416,155 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 
 }
 
+ofp_match fns::install_rule_tag(uint64_t id, int p_in, int p_out,
+		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf,
+		uint32_t tag) {
+	datapathid src;
+
+	lg.warn("Installing new path: %ld: %d -> %d | src: %s tag: %d\n", id, p_in,
+			p_out, dl_src.string().c_str(), tag);
+
+	datapathid dpid;
+	/*OpenFlow command initialization*/
+	dpid = datapathid::from_host(id);
+
+	struct ofp_match match;
+	memset(&match, 0, sizeof(struct ofl_match_standard));
+	match.type = OFPMT_STANDARD;
+	//	match.header.type = OFPMT_STANDARD;
+	match.wildcards = OFPFW_ALL;
+	//   memset(match.dl_src_mask, 0xff, 6);
+	//   memset(match.dl_dst_mask, 0xff, 6);
+	match.nw_src_mask = 0xffffffff;
+	match.nw_dst_mask = 0xffffffff;
+	match.metadata_mask = 0xffffffffffffffffULL;
+	match.in_port = htonl(p_in);
+
+	/* L2 src */
+	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
+	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
+
+	/* L2 dst */
+	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
+	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
+
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_VLAN }, /*.ethertype = */
+	ETH_TYPE_VLAN };
+
+	struct ofl_action_header *actions[] = {
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &push };
+
+	struct ofl_instruction_actions apply = {
+			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+			actions };
+
+	struct ofl_instruction_header *insts[] = {
+			(struct ofl_instruction_header *) &apply };
+
+	struct ofl_msg_flow_mod mod;
+	mod.header.type = OFPT_FLOW_MOD;
+	mod.cookie = htonl(cookie);
+	mod.cookie_mask = 0x00ULL;
+	mod.table_id = 0;
+	mod.command = OFPFC_ADD;
+	mod.out_port = htonl(p_out);
+	mod.out_group = 0;
+	mod.flags = 0x0000;
+	mod.match = (struct ofl_match_header *) &match;
+	mod.instructions_num = 1;
+	mod.instructions = insts;
+	mod.priority = htons(OFP_DEFAULT_PRIORITY);
+	mod.buffer_id = buf;
+	mod.hard_timeout = 0;
+	mod.idle_timeout = TIMEOUT_DEF;
+
+	/* XXX OK to do non-blocking send?  We do so with all other
+	 * commands on switch join */
+	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
+			== EAGAIN) {
+		lg.err("Error, unable to clear flow table on startup");
+	}
+
+	return match;
+
+}
+ofp_match fns::install_rule_tag_pop(uint64_t id, int p_in, int p_out,
+		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
+	datapathid src;
+
+	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
+			dl_src.string().c_str());
+
+	datapathid dpid;
+	/*OpenFlow command initialization*/
+	dpid = datapathid::from_host(id);
+
+	struct ofp_match match;
+	memset(&match, 0, sizeof(struct ofl_match_standard));
+	match.type = OFPMT_STANDARD;
+	//	match.header.type = OFPMT_STANDARD;
+	match.wildcards = OFPFW_ALL;
+	//   memset(match.dl_src_mask, 0xff, 6);
+	//   memset(match.dl_dst_mask, 0xff, 6);
+	match.nw_src_mask = 0xffffffff;
+	match.nw_dst_mask = 0xffffffff;
+	match.metadata_mask = 0xffffffffffffffffULL;
+	match.in_port = htonl(p_in);
+
+	/* L2 src */
+	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
+	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
+
+	/* L2 dst */
+	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
+	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
+
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_VLAN }, /*.ethertype = */
+	ETH_TYPE_IP };
+
+	struct ofl_action_header *actions[] = {
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &pop };
+
+	struct ofl_instruction_actions apply = {
+			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+			actions };
+
+	struct ofl_instruction_header *insts[] = {
+			(struct ofl_instruction_header *) &apply };
+
+	struct ofl_msg_flow_mod mod;
+	mod.header.type = OFPT_FLOW_MOD;
+	mod.cookie = htonl(cookie);
+	mod.cookie_mask = 0x00ULL;
+	mod.table_id = 0;
+	mod.command = OFPFC_ADD;
+	mod.out_port = htonl(p_out);
+	mod.out_group = 0;
+	mod.flags = 0x0000;
+	mod.match = (struct ofl_match_header *) &match;
+	mod.instructions_num = 1;
+	mod.instructions = insts;
+	mod.priority = htons(OFP_DEFAULT_PRIORITY);
+	mod.buffer_id = buf;
+	mod.hard_timeout = 0;
+	mod.idle_timeout = TIMEOUT_DEF;
+
+	/* XXX OK to do non-blocking send?  We do so with all other
+	 * commands on switch join */
+	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
+			== EAGAIN) {
+		lg.err("Error, unable to clear flow table on startup");
+	}
+
+	return match;
+}
+
 int fns::remove_rule(FNSRule rule) {
 	datapathid dpid;
 
@@ -403,15 +591,6 @@ int fns::remove_rule(FNSRule rule) {
 			== EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
-	return 0;
-}
-
-int fns::install_rule_mpls(uint64_t id, int p_in, int p_out, int mpls_tag) {
-	datapathid src;
-	lg.warn("Adding mpls rule");
-
-	/*OpenFlow command initialization*/
-
 	return 0;
 }
 
@@ -455,14 +634,14 @@ int fns::mod_fns_del(fnsDesc* fns1) {
 	}
 	lg.warn("Num of affected endpoints: %d", fns1->nEp);
 	for (int i = 0; i < fns1->nEp; i++) {
-		remove_endpoint(&fns1->ep[i],fns);
+		remove_endpoint(&fns1->ep[i], fns);
 
 	}
 	return 0;
 }
 
 int fns::remove_endpoint(endpoint *epd, FNS* fns) {
-	uint64_t key = EPoint::generate_key(epd->id, epd->port, epd->mpls);
+	uint64_t key = EPoint::generate_key(epd->id, epd->port, epd->vlan);
 	EPoint* ep = rules.getEpoint(key);
 	return remove_endpoint(ep, fns);
 
@@ -490,9 +669,10 @@ int fns::save_fns(fnsDesc* fns1) {
 
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
-		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,
-				fns1->ep[i].port);
-		rules.addEPoint(&fns1->ep[i], fns);
+		uint64_t key = rules.addEPoint(&fns1->ep[i], fns);
+		lg.warn("Adding rule to ep: %ld : %d vlan: %d k: %lu\n",
+				fns1->ep[i].id, fns1->ep[i].port, fns1->ep[i].vlan, key);
+
 	}
 	return 0;
 }
@@ -507,8 +687,8 @@ int fns::remove_fns(fnsDesc* fns1) {
 
 	/* Go to any end nodes and remove installed path */
 	lg.warn("Num of affected endpoints: %d", fns->numEPoints());
-	while(fns->numEPoints()>0) {
-		remove_endpoint(fns->getEPoint(0),fns);
+	while (fns->numEPoints() > 0) {
+		remove_endpoint(fns->getEPoint(0), fns);
 	}
 
 	/* Remove fns from the list and free memory*/

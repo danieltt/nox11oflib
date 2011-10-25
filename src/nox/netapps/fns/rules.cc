@@ -16,7 +16,7 @@
  * along with NOX.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "rules.hh"
-#include <algorithm> // remove and remove_if
+#include <boost/functional/hash.hpp>
 
 FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 	sw_id(sw_id) {
@@ -25,9 +25,10 @@ FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 
 /*Epoint class*/
 
-EPoint::EPoint(uint64_t ep_id, int in_port, uint32_t mpls, uint64_t fns_uuid) :
-	ep_id(ep_id), in_port(in_port), mpls(mpls), fns_uuid(fns_uuid) {
-	key = generate_key(ep_id, in_port, mpls);
+EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
+		uint64_t fns_uuid) :
+	ep_id(ep_id), in_port(in_port), vlan(vlan), fns_uuid(fns_uuid) {
+	key = generate_key(ep_id, in_port, vlan);
 }
 
 void EPoint::addRule(FNSRule r) {
@@ -43,22 +44,12 @@ void EPoint::installed_pop() {
 	installed_rules.pop_back();
 }
 
-uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint32_t mpls) {
-	/*TODO improve mixing functions */
-	uint64_t tmp = ((uint64_t) port << 32) + mpls;
-	tmp ^= tmp >> 33;
-	tmp *= 0xff51afd7ed558ccd;
-	tmp ^= tmp >> 33;
-	tmp *= 0xc4ceb9fe1a85ec53;
-	tmp ^= tmp >> 33;
-
-	sw_id ^= sw_id >> 33;
-	sw_id *= 0xff51afd7ed558ccd;
-	sw_id ^= sw_id >> 33;
-	sw_id *= 0xc4ceb9fe1a85ec53;
-	sw_id ^= sw_id >> 33;
-
-	return (tmp + sw_id) % UINT64_MAX;
+uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan) {
+	uint64_t seed = 0;
+	boost::hash_combine(seed, port);
+	boost::hash_combine(seed, sw_id);
+	boost::hash_combine(seed, vlan);
+	return seed;
 }
 
 FNS::FNS(uint64_t uuid) :
@@ -71,13 +62,14 @@ uint64_t FNS::getUuid() {
 }
 
 void FNS::addEPoint(EPoint* ep) {
-//	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
+	//	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
 	epoints.push_back(ep);
 }
 
 int FNS::removeEPoint(EPoint* ep) {
 	ep->fns_uuid = 0;
-	epoints.erase(std::remove(epoints.begin(), epoints.end(), ep), epoints.end());
+	epoints.erase(std::remove(epoints.begin(), epoints.end(), ep),
+			epoints.end());
 
 	return 0;
 }
@@ -91,7 +83,7 @@ EPoint* FNS::getEPoint(int pos) {
 
 /*RulesDB class*/
 uint64_t RulesDB::addEPoint(endpoint* ep, FNS* fns) {
-	EPoint epoint = EPoint(ep->id, ep->port, ep->mpls, fns->getUuid());
+	EPoint epoint = EPoint(ep->id, ep->port, ep->vlan, fns->getUuid());
 	//	printf("Adding %ld\n",ep->id);
 	EPoint *node = getEpoint(epoint.key);
 	if (node == NULL) {
