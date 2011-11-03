@@ -83,7 +83,7 @@ EPoint* FNS::getEPoint(int pos) {
 
 /*RulesDB class*/
 uint64_t RulesDB::addEPoint(endpoint* ep, FNS* fns) {
-	EPoint epoint = EPoint(ep->id, ep->port, ep->vlan, fns->getUuid());
+	EPoint epoint = EPoint(ep->swId, ep->port, ep->vlan, fns->getUuid());
 	//	printf("Adding %ld\n",ep->id);
 	EPoint *node = getEpoint(epoint.key);
 	if (node == NULL) {

@@ -620,9 +620,9 @@ int fns::mod_fns_add(fnsDesc* fns1) {
 	}
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
-		lg.warn("Adding rule to ep: %ld : %d\n", fns1->ep[i].id,
-				fns1->ep[i].port);
-		rules.addEPoint(&fns1->ep[i], fns);
+		endpoint *ep =   GET_ENDPOINT(fns1, i);
+		lg.warn("Adding rule to ep: %ld : %d\n",ep->swId, ep->port);
+		rules.addEPoint(ep, fns);
 	}
 	return 0;
 }
@@ -634,14 +634,14 @@ int fns::mod_fns_del(fnsDesc* fns1) {
 	}
 	lg.warn("Num of affected endpoints: %d", fns1->nEp);
 	for (int i = 0; i < fns1->nEp; i++) {
-		remove_endpoint(&fns1->ep[i], fns);
+		remove_endpoint(GET_ENDPOINT(fns1, i), fns);
 
 	}
 	return 0;
 }
 
 int fns::remove_endpoint(endpoint *epd, FNS* fns) {
-	uint64_t key = EPoint::generate_key(epd->id, epd->port, epd->vlan);
+	uint64_t key = EPoint::generate_key(epd->swId, epd->port, epd->vlan);
 	EPoint* ep = rules.getEpoint(key);
 	return remove_endpoint(ep, fns);
 
@@ -669,9 +669,10 @@ int fns::save_fns(fnsDesc* fns1) {
 
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
-		uint64_t key = rules.addEPoint(&fns1->ep[i], fns);
+		endpoint *ep=  GET_ENDPOINT(fns1, i);
+		uint64_t key = rules.addEPoint( ep, fns);
 		lg.warn("Adding rule to ep: %ld : %d vlan: %d k: %lu\n",
-				fns1->ep[i].id, fns1->ep[i].port, fns1->ep[i].vlan, key);
+				ep->swId,ep->port, ep->vlan, key);
 
 	}
 	return 0;
@@ -836,7 +837,7 @@ void fns::server() {
 					for (i = 0; i < nodeFinder.size(); i++) {
 						lg.dbg("ID: %lu: ports: %d", nodeFinder.at(i)->id,
 								nodeFinder.at(i)->ports);
-						msg1->endpoints[i].id = nodeFinder.at(i)->id;
+						msg1->endpoints[i].swId = nodeFinder.at(i)->id;
 						msg1->endpoints[i].port = nodeFinder.at(i)->ports;
 					}
 					if (write(s, msg1, size) < 0)
