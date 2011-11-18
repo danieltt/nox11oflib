@@ -124,6 +124,53 @@ Disposition fns::handle_packet_in(const Event& e) {
 	return CONTINUE;
 }
 
+Buffer* pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
+	struct eth_header* eth;
+	struct vlan_header* vlan;
+	uint8_t pkt[buff.size()];
+	memcpy(pkt, buff.data(), buff.size());
+	eth = (struct eth_header*) pkt;
+	if (ntohs(eth->eth_type) == ETH_TYPE_VLAN) {
+		vlan = (struct vlan_header*) eth + sizeof(struct eth_header);
+		vlan->vlan_tci = (htons(vlanid) & VLAN_VID_MASK) << VLAN_VID_SHIFT;
+	}
+	return new Array_buffer(pkt, buff.size());
+}
+Buffer* pkt_remove_vlan(const Buffer& buff) {
+	struct eth_header* eth;
+	struct vlan_header* vlan;
+	uint8_t pkt[buff.size() - sizeof(struct vlan_header)];
+	memcpy(pkt, buff.data(), sizeof(struct eth_header));
+	memcpy(pkt + sizeof(struct eth_header), buff.data()
+			+ sizeof(struct eth_header) + sizeof(struct vlan_header),
+			buff.size() - sizeof(struct eth_header)
+					- sizeof(struct vlan_header));
+	eth = (struct eth_header*) pkt;
+	vlan = (struct vlan_header*) (buff.data() + sizeof(struct eth_header));
+	eth->eth_type = vlan->vlan_next_type;
+	return new Array_buffer(pkt, buff.size());
+}
+Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
+	struct eth_header* eth0, *eth;
+	struct vlan_header* vlan;
+	size_t size = buff.size() + sizeof(struct vlan_header);
+	uint8_t *pkt = new uint8_t[size]; // eth=14,tlv1=9,tlv2=7,tlv3=4,tlv0=2
+	eth0 = (struct eth_header*) buff.data();
+	memset(pkt, 0, size);
+	memcpy(pkt, buff.data(), sizeof(struct eth_header));
+	memcpy(&pkt[sizeof(struct eth_header) + sizeof(struct vlan_header)],
+			buff.data() + sizeof(struct eth_header), buff.size()
+					- sizeof(struct eth_header));
+	eth = (struct eth_header*) pkt;
+	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header) );
+	vlan->vlan_next_type = eth0->eth_type;
+	eth->eth_type = htons(ETH_TYPE_VLAN);
+	lg.warn("VLAN ID OUT: %d type %x", vlanid, ntohs(eth0->eth_type));
+	vlan->vlan_tci = (htons(vlanid) & VLAN_VID_MASK) << VLAN_VID_SHIFT;
+	//vlan->vlan_tci = 0xffff;
+
+	return new Array_buffer(pkt, size);
+}
 void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		int buf_id) {
 	EPoint* ep_dst;
@@ -147,14 +194,55 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 	ethernetaddr dl_src = ethernetaddr(flow->match.dl_src);
 	if (dl_dst.is_broadcast() && flow->match.dl_type == ETH_TYPE_ARP) {
 #endif
-		/*Send to all endpoints of the fns*/
-		lg.warn("Sending ARP broadcast");
-		for (int j = 0; j < fns->numEPoints(); j++) {
-			EPoint* ep = fns->getEPoint(j);
-			if (ep->key != ep_src->key)
-				forward_via_controller(ep->ep_id, buff, ep->in_port);
+		ep_dst = locator.getLocation(dl_dst);
+		if (ep_dst == NULL) {
+			/* We don't know destination. Send ARP request to other endpoints */
+			/*Send to all endpoints of the fns*/
+			lg.warn("Sending ARP broadcast");
+			boost::shared_ptr<Buffer> buff1;
+			for (int j = 0; j < fns->numEPoints(); j++) {
+				EPoint* ep = fns->getEPoint(j);
+
+				if (ep->key != ep_src->key) {
+					if (ep->vlan != ep_src->vlan && ep->vlan != OFPVID_NONE
+							&& ep_src->vlan != OFPVID_NONE) {
+						/*Change VLAN*/
+						lg.warn("Sending VLAN CHANGE");
+						buff1 = boost::shared_ptr<Buffer>(pkt_change_vlan(buff,
+								ep->vlan));
+						forward_via_controller(ep->ep_id,
+								(const vigil::Buffer&) buff1, ep->in_port);
+					} else if (ep_src->vlan != OFPVID_NONE && ep->vlan
+							== OFPVID_NONE) {
+						/*Remove tag*/
+						lg.warn("Sending VLAN REMOVE");
+						buff1
+								= boost::shared_ptr<Buffer>(pkt_remove_vlan(
+										buff));
+						forward_via_controller(ep->ep_id,
+								(const vigil::Buffer&) buff1, ep->in_port);
+					} else if (ep_src->vlan == OFPVID_NONE && ep->vlan
+							!= OFPVID_NONE) {
+						/* Append VLAN */
+						lg.warn("Sending VLAN APPEND");
+						send_openflow_pkt(datapathid::from_host(ep->ep_id),
+								*(boost::shared_ptr<Buffer>(pkt_append_vlan(
+										buff, ep->vlan))), OFPP_CONTROLLER,
+								ep->in_port, false);
+
+					} else {
+
+						forward_via_controller(ep->ep_id,
+								(const vigil::Buffer&) buff, ep->in_port);
+					}
+				}
+			}
+			/*Nothing to be done*/
+			return;
+		} else {
+			/* We already know destination */
+			/* we send ARP reply */
 		}
-		return;
 	}
 
 	/*Compute path from source*/
@@ -620,8 +708,8 @@ int fns::mod_fns_add(fnsDesc* fns1) {
 	}
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
-		endpoint *ep =   GET_ENDPOINT(fns1, i);
-		lg.warn("Adding rule to ep: %ld : %d\n",ep->swId, ep->port);
+		endpoint *ep = GET_ENDPOINT(fns1, i);
+		lg.warn("Adding rule to ep: %ld : %d\n", ep->swId, ep->port);
 		rules.addEPoint(ep, fns);
 	}
 	return 0;
@@ -669,10 +757,10 @@ int fns::save_fns(fnsDesc* fns1) {
 
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
-		endpoint *ep=  GET_ENDPOINT(fns1, i);
-		uint64_t key = rules.addEPoint( ep, fns);
-		lg.warn("Adding rule to ep: %ld : %d vlan: %d k: %lu\n",
-				ep->swId,ep->port, ep->vlan, key);
+		endpoint *ep = GET_ENDPOINT(fns1, i);
+		uint64_t key = rules.addEPoint(ep, fns);
+		lg.warn("Adding rule to ep: %ld : %d vlan: %d k: %lu\n", ep->swId,
+				ep->port, ep->vlan, key);
 
 	}
 	return 0;
@@ -712,7 +800,7 @@ void fns::server() {
 	int newfd;
 	int nbytes;
 	struct timeval tv;
-	void* buf;
+	uint8_t* buf;
 	int i;
 
 	listener = socket(AF_INET, SOCK_STREAM, 0);
@@ -745,7 +833,7 @@ void fns::server() {
 	fdmax = listener; /* maximum file descriptor number */
 
 	/*Allocate reception buffer*/
-	buf = (void*) malloc(MSG_SIZE);
+	buf = (uint8_t*) malloc(MSG_SIZE);
 	if (buf == NULL) {
 		perror("ERROR in malloc");
 		exit(1);
@@ -809,46 +897,51 @@ void fns::server() {
 			} else {
 				/* we got some data from a client*/
 				lg.dbg("New msg of size %d", nbytes);
-				struct msg_fns *msg = (struct msg_fns*) buf;
-
-				switch (msg->type) {
-				case FNS_MSG_MOD_ADD:
-					mod_fns_add(&msg->fns);
-					break;
-				case FNS_MSG_MOD_DEL:
-					mod_fns_del(&msg->fns);
-					break;
-				case FNS_MSG_ADD:
-					save_fns(&msg->fns);
-					break;
-				case FNS_MSG_DEL:
-					remove_fns(&msg->fns);
-					break;
-				case FNS_MSG_SW_IDS: {
-					/**TODO return IDs of the endpoints and num of ports*/
-					vector<Node*> nodeFinder = finder.getNodes();
-					lg.dbg("Current nodes in the controller:");
-					int size = sizeof(struct msg_ids) + nodeFinder.size()
-							* sizeof(endpoint);
-					struct msg_ids *msg1 = (struct msg_ids *) malloc(size);
-					memset(msg1, 0, size);
-					msg1->nEp = nodeFinder.size();
-					msg1->type = FNS_MSG_SW_IDS;
-					for (i = 0; i < nodeFinder.size(); i++) {
-						lg.dbg("ID: %lu: ports: %d", nodeFinder.at(i)->id,
-								nodeFinder.at(i)->ports);
-						msg1->endpoints[i].swId = nodeFinder.at(i)->id;
-						msg1->endpoints[i].port = nodeFinder.at(i)->ports;
+				unsigned int offset = 0;
+				do {
+					struct msg_fns *msg = (struct msg_fns*) (buf + offset);
+					switch (msg->type) {
+					case FNS_MSG_MOD_ADD:
+						mod_fns_add(&msg->fns);
+						break;
+					case FNS_MSG_MOD_DEL:
+						mod_fns_del(&msg->fns);
+						break;
+					case FNS_MSG_ADD:
+						save_fns(&msg->fns);
+						break;
+					case FNS_MSG_DEL:
+						remove_fns(&msg->fns);
+						break;
+					case FNS_MSG_SW_IDS: {
+						/**TODO return IDs of the endpoints and num of ports*/
+						vector<Node*> nodeFinder = finder.getNodes();
+						lg.dbg("Current nodes in the controller:");
+						int size = sizeof(struct msg_ids) + nodeFinder.size()
+								* sizeof(endpoint);
+						struct msg_ids *msg1 = (struct msg_ids *) malloc(size);
+						memset(msg1, 0, size);
+						msg1->nEp = nodeFinder.size();
+						msg1->type = FNS_MSG_SW_IDS;
+						for (i = 0; i < nodeFinder.size(); i++) {
+							lg.dbg("ID: %lu: ports: %d", nodeFinder.at(i)->id,
+									nodeFinder.at(i)->ports);
+							msg1->endpoints[i].swId = nodeFinder.at(i)->id;
+							msg1->endpoints[i].port = nodeFinder.at(i)->ports;
+						}
+						if (write(s, msg1, size) < 0)
+							lg.err("Error sending packet");
+						break;
 					}
-					if (write(s, msg1, size) < 0)
-						lg.err("Error sending packet");
-					break;
-				}
-				default:
-					printf("Invalid message of size %d: %s\n", nbytes,
-							(char*) buf);
-					break;
-				}
+					default:
+						lg.err("Invalid message of size %d: %s\n", nbytes,
+								(char*) buf);
+						break;
+					}
+					offset += (msg->size);
+					lg.dbg("msg size %d %d", (msg->size), offset);
+
+				} while (offset < nbytes);
 			}
 		}
 	}
