@@ -126,12 +126,14 @@ private:
 	void forward_via_controller(uint64_t id,
 			const boost::shared_ptr<Buffer> buff, int port);
 	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
-	ofp_match install_rule(uint64_t id, int p_in, int p_out,
+	ofp_match install_rule(uint64_t id, int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint16_t vlan);
-	ofp_match install_rule_tag_push(uint64_t id, int p_in, int p_out,
+	ofp_match install_rule_tag_push(uint64_t id,int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
-	ofp_match install_rule_tag_pop(uint64_t id, int p_in, int p_out,
+	ofp_match install_rule_tag_pop(uint64_t id, int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
+	ofp_match install_rule_tag_change(uint64_t id, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag_in, uint32_t tag_out);
 };
 }
 #endif
