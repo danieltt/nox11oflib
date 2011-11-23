@@ -77,15 +77,7 @@ public:
 
 	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff,
 			int buf_id);
-	void forward_via_controller(uint64_t id, const boost::shared_ptr<Buffer> buff, int port);
-	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
-	ofp_match install_rule(uint64_t id, int p_in, int p_out,
-			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
-	ofp_match install_rule_tag(uint64_t id, int p_in, int p_out,
-			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf,
-			uint32_t tag);
-	ofp_match install_rule_tag_pop(uint64_t id, int p_in, int p_out,
-			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
+
 	int remove_rule(FNSRule rule);
 
 	int save_fns(fnsDesc* fns);
@@ -128,6 +120,18 @@ private:
 	Locator locator;
 	int cookie;
 
+	void set_match(struct ofp_match* match, vigil::ethernetaddr dl_dst,
+			uint16_t vlan);
+	void set_mod_def(struct ofl_msg_flow_mod *mod, int p_out, int buf);
+	void forward_via_controller(uint64_t id,
+			const boost::shared_ptr<Buffer> buff, int port);
+	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
+	ofp_match install_rule(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint16_t vlan);
+	ofp_match install_rule_tag_push(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
+	ofp_match install_rule_tag_pop(uint64_t id, int p_in, int p_out,
+			vigil::ethernetaddr dl_dst, int buf);
 };
 }
 #endif

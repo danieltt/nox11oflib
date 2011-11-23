@@ -227,17 +227,13 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 							!= OFPVID_NONE) {
 						/* Append VLAN */
 						lg.warn("Sending VLAN APPEND");
-						//						send_openflow_pkt(datapathid::from_host(ep->ep_id),
-						//								*(boost::shared_ptr<Buffer>()), OFPP_CONTROLLER,
-						//								ep->in_port, false);
 						buff1 = boost::shared_ptr<Buffer>(pkt_append_vlan(buff,
 								ep->vlan));
 						forward_via_controller(ep->ep_id, buff1, ep->in_port);
 
 					} else {
 
-						forward_via_controller(ep->ep_id,
-								buff, ep->in_port);
+						forward_via_controller(ep->ep_id, buff, ep->in_port);
 					}
 				}
 			}
@@ -301,19 +297,19 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 				!= OFPVID_NONE) {
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, in_port, out_port,
-					dl_src, dl_dst, buf_id);
+					dl_dst, buf_id);
 		} else if (k == 0 && ep_dst->vlan != OFPVID_NONE && ep_src->vlan
 				== OFPVID_NONE) {
 			/*push vlan*/
-			match = install_rule_tag(path.at(k)->id, in_port, out_port, dl_src,
+			match = install_rule_tag_push(path.at(k)->id, in_port, out_port,
 					dl_dst, buf_id, ep_dst->vlan);
 		} else if (k == 0 && ep_dst->vlan != ep_src->vlan && ep_src->vlan
 				!= OFPVID_NONE) {
 			/*change vlan*/
 		} else {
 			/*none*/
-			match = install_rule(path.at(k)->id, in_port, out_port, dl_src,
-					dl_dst, buf_id);
+			match = install_rule(path.at(k)->id, in_port, out_port, dl_dst,
+					buf_id, OFPVID_NONE);
 		}
 
 		/* Keeping track of the installed rules */
@@ -325,19 +321,19 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, out_port, in_port,
-					dl_src, dl_dst, buf_id);
+					dl_dst, buf_id);
 		} else if ((k == path.size() - 1) && ep_src->vlan != OFPVID_NONE
 				&& ep_dst->vlan == OFPVID_NONE) {
 			/*push vlan*/
-			match = install_rule_tag(path.at(k)->id, out_port, in_port, dl_src,
+			match = install_rule_tag_push(path.at(k)->id, out_port, in_port,
 					dl_dst, buf_id, ep_src->vlan);
 		} else if ((k == path.size() - 1) && ep_dst->vlan != ep_src->vlan
 				&& ep_src->vlan != OFPVID_NONE) {
 			/*change vlan*/
 		} else {
 			/*none*/
-			match = install_rule(path.at(k)->id, out_port, in_port, dl_dst,
-					dl_src, buf_id);
+			match = install_rule(path.at(k)->id, out_port, in_port, dl_src,
+					buf_id, OFPVID_NONE);
 		}
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
@@ -435,111 +431,86 @@ int fns::remove_rule(FNSRule rule) {
 #endif
 
 #ifdef NOX_OF11
+void fns::set_match(struct ofp_match* match, vigil::ethernetaddr dl_dst,
+		uint16_t vlan) {
+	memset(match, 0, sizeof(struct ofl_match_standard));
+	match->type = OFPMT_STANDARD;
+	match->wildcards = OFPFW_ALL & ~OFPFW_DL_VLAN;
+	memset(match->dl_src_mask, 0xff, 6);
+	//   memset(match.dl_dst_mask, 0xff, 6);
+	match->nw_src_mask = 0xffffffff;
+	match->nw_dst_mask = 0xffffffff;
+	match->metadata_mask = 0xffffffffffffffffULL;
+	match->dl_vlan = vlan;
+	//match.in_port = htonl(p_in);
+	/* L2 dst */
+	memset(match->dl_dst_mask, 0, sizeof(match->dl_dst_mask));
+	memcpy(match->dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
+}
+
+void fns::set_mod_def(struct ofl_msg_flow_mod *mod, int p_out, int buf) {
+	mod->header.type = OFPT_FLOW_MOD;
+	mod->cookie = htonl(cookie);
+	mod->cookie_mask = 0x00ULL;
+	mod->table_id = 0;
+	mod->command = OFPFC_ADD;
+	mod->out_port = htonl(p_out);
+	mod->out_group = 0;
+	mod->flags = 0x0000;
+	mod->instructions_num = 1;
+	mod->priority = htons(OFP_DEFAULT_PRIORITY);
+	mod->buffer_id = buf;
+	mod->hard_timeout = 0;
+	mod->idle_timeout = TIMEOUT_DEF;
+}
 
 ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
-		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
-	datapathid src;
+		vigil::ethernetaddr dl_dst, int buf, uint16_t vlan) {
+	struct ofp_match match;
+	struct ofl_msg_flow_mod mod;
+	datapathid dpid = datapathid::from_host(id);
 
 	lg.warn("Installing new path: %ld: %d -> %d | dst: %s\n", id, p_in, p_out,
 			dl_dst.string().c_str());
 
-	datapathid dpid;
-	/*OpenFlow command initialization*/
-	dpid = datapathid::from_host(id);
+	set_match(&match, dl_dst, vlan);
+	set_mod_def(&mod, p_out, buf);
+	mod.match = (struct ofl_match_header *) &match;
 
-	struct ofp_match match;
-	memset(&match, 0, sizeof(struct ofl_match_standard));
-	match.type = OFPMT_STANDARD;
-	//	match.header.type = OFPMT_STANDARD;
-	match.wildcards = OFPFW_ALL;
-	memset(match.dl_src_mask, 0xff, 6);
-	//   memset(match.dl_dst_mask, 0xff, 6);
-	match.nw_src_mask = 0xffffffff;
-	match.nw_dst_mask = 0xffffffff;
-	match.metadata_mask = 0xffffffffffffffffULL;
-	//match.in_port = htonl(p_in);
-
-	/* L2 src */
-	//memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
-	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
-
-	/* L2 dst */
-	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
-	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
-
+	/* Actions */
 	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
 	p_out, /*.max_len = */0 };
-
 	struct ofl_action_header *actions[] = {
 			(struct ofl_action_header *) &output };
-
 	struct ofl_instruction_actions apply = {
 			{/*.type = */OFPIT_WRITE_ACTIONS }, /*.actions_num = */1, /*.actions = */
 			actions };
-
 	struct ofl_instruction_header *insts[] = {
 			(struct ofl_instruction_header *) &apply };
 
-	struct ofl_msg_flow_mod mod;
-	mod.header.type = OFPT_FLOW_MOD;
-	mod.cookie = htonl(cookie);
-	mod.cookie_mask = 0x00ULL;
-	mod.table_id = 0;
-	mod.command = OFPFC_ADD;
-	mod.out_port = htonl(p_out);
-	mod.out_group = 0;
-	mod.flags = 0x0000;
-	mod.match = (struct ofl_match_header *) &match;
-	mod.instructions_num = 1;
 	mod.instructions = insts;
-	mod.priority = htons(OFP_DEFAULT_PRIORITY);
-	mod.buffer_id = buf;
-	mod.hard_timeout = 0;
-	mod.idle_timeout = TIMEOUT_DEF;
 
-	/* XXX OK to do non-blocking send?  We do so with all other
-	 * commands on switch join */
 	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
 			== EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
-
 	return match;
-
 }
 
-ofp_match fns::install_rule_tag(uint64_t id, int p_in, int p_out,
-		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf,
-		uint32_t tag) {
-	datapathid src;
-
-	lg.warn("Installing new path: %ld: %d -> %d | src: %s tag: %d\n", id, p_in,
-			p_out, dl_src.string().c_str(), tag);
-
-	datapathid dpid;
-	/*OpenFlow command initialization*/
-	dpid = datapathid::from_host(id);
-
+ofp_match fns::install_rule_tag_push(uint64_t id, int p_in, int p_out,
+		vigil::ethernetaddr dl_dst, int buf, uint32_t tag) {
 	struct ofp_match match;
-	memset(&match, 0, sizeof(struct ofl_match_standard));
-	match.type = OFPMT_STANDARD;
-	//	match.header.type = OFPMT_STANDARD;
-	match.wildcards = OFPFW_ALL;
-	//   memset(match.dl_src_mask, 0xff, 6);
-	//   memset(match.dl_dst_mask, 0xff, 6);
-	match.nw_src_mask = 0xffffffff;
-	match.nw_dst_mask = 0xffffffff;
-	match.metadata_mask = 0xffffffffffffffffULL;
-	match.in_port = htonl(p_in);
+	struct ofl_msg_flow_mod mod;
+	datapathid dpid = datapathid::from_host(id);
 
-	/* L2 src */
-	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
-	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
+	lg.warn("Installing new path PUSH: %ld: %d -> %d  tag: %d\n", id, p_in,
+			p_out, tag);
 
-	/* L2 dst */
-	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
-	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
+	set_match(&match, dl_dst, tag);
+	set_mod_def(&mod, p_out, buf);
+	mod.match = (struct ofl_match_header *) &match;
 
+	/* Actions */
 	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
 	p_out, /*.max_len = */0 };
 	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_VLAN }, /*.ethertype = */
@@ -556,64 +527,23 @@ ofp_match fns::install_rule_tag(uint64_t id, int p_in, int p_out,
 	struct ofl_instruction_header *insts[] = {
 			(struct ofl_instruction_header *) &apply };
 
-	struct ofl_msg_flow_mod mod;
-	mod.header.type = OFPT_FLOW_MOD;
-	mod.cookie = htonl(cookie);
-	mod.cookie_mask = 0x00ULL;
-	mod.table_id = 0;
-	mod.command = OFPFC_ADD;
-	mod.out_port = htonl(p_out);
-	mod.out_group = 0;
-	mod.flags = 0x0000;
-	mod.match = (struct ofl_match_header *) &match;
-	mod.instructions_num = 1;
 	mod.instructions = insts;
-	mod.priority = htons(OFP_DEFAULT_PRIORITY);
-	mod.buffer_id = buf;
-	mod.hard_timeout = 0;
-	mod.idle_timeout = TIMEOUT_DEF;
 
-	/* XXX OK to do non-blocking send?  We do so with all other
-	 * commands on switch join */
 	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
 			== EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
-
 	return match;
-
 }
 ofp_match fns::install_rule_tag_pop(uint64_t id, int p_in, int p_out,
-		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
-	datapathid src;
-
-	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
-			dl_src.string().c_str());
-
-	datapathid dpid;
-	/*OpenFlow command initialization*/
-	dpid = datapathid::from_host(id);
-
+		vigil::ethernetaddr dl_dst, int buf) {
 	struct ofp_match match;
-	memset(&match, 0, sizeof(struct ofl_match_standard));
-	match.type = OFPMT_STANDARD;
-	//	match.header.type = OFPMT_STANDARD;
-	match.wildcards = OFPFW_ALL;
-	//   memset(match.dl_src_mask, 0xff, 6);
-	//   memset(match.dl_dst_mask, 0xff, 6);
-	match.nw_src_mask = 0xffffffff;
-	match.nw_dst_mask = 0xffffffff;
-	match.metadata_mask = 0xffffffffffffffffULL;
-	match.in_port = htonl(p_in);
+	struct ofl_msg_flow_mod mod;
+	datapathid dpid = datapathid::from_host(id);
 
-	/* L2 src */
-	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
-	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
+	lg.warn("Installing new path POP: %ld: %d -> %d\n", id, p_in, p_out);
 
-	/* L2 dst */
-	memset(match.dl_dst_mask, 0, sizeof(match.dl_dst_mask));
-	memcpy(match.dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
-
+	/* Actions */
 	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
 	p_out, /*.max_len = */0 };
 	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_VLAN }, /*.ethertype = */
@@ -630,30 +560,12 @@ ofp_match fns::install_rule_tag_pop(uint64_t id, int p_in, int p_out,
 	struct ofl_instruction_header *insts[] = {
 			(struct ofl_instruction_header *) &apply };
 
-	struct ofl_msg_flow_mod mod;
-	mod.header.type = OFPT_FLOW_MOD;
-	mod.cookie = htonl(cookie);
-	mod.cookie_mask = 0x00ULL;
-	mod.table_id = 0;
-	mod.command = OFPFC_ADD;
-	mod.out_port = htonl(p_out);
-	mod.out_group = 0;
-	mod.flags = 0x0000;
-	mod.match = (struct ofl_match_header *) &match;
-	mod.instructions_num = 1;
 	mod.instructions = insts;
-	mod.priority = htons(OFP_DEFAULT_PRIORITY);
-	mod.buffer_id = buf;
-	mod.hard_timeout = 0;
-	mod.idle_timeout = TIMEOUT_DEF;
 
-	/* XXX OK to do non-blocking send?  We do so with all other
-	 * commands on switch join */
 	if (send_openflow_msg(dpid, (struct ofl_msg_header *) &mod, 0/*xid*/, false)
 			== EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
-
 	return match;
 }
 
@@ -700,8 +612,7 @@ void fns::forward_via_controller(uint64_t id, boost::shared_ptr<Buffer> buff,
 			false);
 #endif
 }
-void fns::forward_via_controller(uint64_t id, const Buffer &buff,
-		int port) {
+void fns::forward_via_controller(uint64_t id, const Buffer &buff, int port) {
 	lg.warn("ATTENTION. Sending packet directly to the destination: %lu :%d",
 			id, port);
 
@@ -712,7 +623,6 @@ void fns::forward_via_controller(uint64_t id, const Buffer &buff,
 			false);
 #endif
 }
-
 
 Flow* fns::getMatchFlow(uint64_t id, Flow* flow) {
 	return flow;
