@@ -511,7 +511,7 @@ ofp_match fns::install_rule_tag_push(uint64_t id, int p_out,
 	lg.warn("Installing new path : %ld PUSH %d: %d -> %s\n", id, tag, p_out,
 			dl_dst.string().c_str());
 
-	set_match(&match, dl_dst, tag);
+	set_match(&match, dl_dst, OFPVID_NONE);
 	set_mod_def(&mod, p_out, buf);
 	mod.match = (struct ofl_match_header *) &match;
 
