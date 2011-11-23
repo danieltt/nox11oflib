@@ -440,8 +440,8 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 		vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf) {
 	datapathid src;
 
-	lg.warn("Installing new path: %ld: %d -> %d | src: %s\n", id, p_in, p_out,
-			dl_src.string().c_str());
+	lg.warn("Installing new path: %ld: %d -> %d | dst: %s\n", id, p_in, p_out,
+			dl_dst.string().c_str());
 
 	datapathid dpid;
 	/*OpenFlow command initialization*/
@@ -452,15 +452,15 @@ ofp_match fns::install_rule(uint64_t id, int p_in, int p_out,
 	match.type = OFPMT_STANDARD;
 	//	match.header.type = OFPMT_STANDARD;
 	match.wildcards = OFPFW_ALL;
-	//   memset(match.dl_src_mask, 0xff, 6);
+	memset(match.dl_src_mask, 0xff, 6);
 	//   memset(match.dl_dst_mask, 0xff, 6);
 	match.nw_src_mask = 0xffffffff;
 	match.nw_dst_mask = 0xffffffff;
 	match.metadata_mask = 0xffffffffffffffffULL;
-	match.in_port = htonl(p_in);
+	//match.in_port = htonl(p_in);
 
 	/* L2 src */
-	memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
+	//memset(match.dl_src_mask, 0, sizeof(match.dl_src_mask));
 	memcpy(match.dl_src, dl_src.octet, sizeof(dl_src.octet));
 
 	/* L2 dst */
