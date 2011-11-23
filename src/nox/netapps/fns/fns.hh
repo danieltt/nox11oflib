@@ -77,8 +77,8 @@ public:
 
 	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff,
 			int buf_id);
-	void forward_via_controller(uint64_t id, const Buffer& buff, int por);
-
+	void forward_via_controller(uint64_t id, const boost::shared_ptr<Buffer> buff, int port);
+	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
 	ofp_match install_rule(uint64_t id, int p_in, int p_out,
 			vigil::ethernetaddr dl_src, vigil::ethernetaddr dl_dst, int buf);
 	ofp_match install_rule_tag(uint64_t id, int p_in, int p_out,

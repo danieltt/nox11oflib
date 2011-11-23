@@ -127,7 +127,8 @@ Disposition fns::handle_packet_in(const Event& e) {
 Buffer* pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
 	struct eth_header* eth;
 	struct vlan_header* vlan;
-	uint8_t pkt[buff.size()];
+	size_t size = buff.size();
+	uint8_t *pkt = new uint8_t[size];
 	memcpy(pkt, buff.data(), buff.size());
 	eth = (struct eth_header*) pkt;
 	if (ntohs(eth->eth_type) == ETH_TYPE_VLAN) {
@@ -139,7 +140,9 @@ Buffer* pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
 Buffer* pkt_remove_vlan(const Buffer& buff) {
 	struct eth_header* eth;
 	struct vlan_header* vlan;
-	uint8_t pkt[buff.size() - sizeof(struct vlan_header)];
+	size_t size = buff.size() - sizeof(struct vlan_header);
+	uint8_t *pkt = new uint8_t[size];
+	memset(pkt, 0, size);
 	memcpy(pkt, buff.data(), sizeof(struct eth_header));
 	memcpy(pkt + sizeof(struct eth_header), buff.data()
 			+ sizeof(struct eth_header) + sizeof(struct vlan_header),
@@ -148,7 +151,8 @@ Buffer* pkt_remove_vlan(const Buffer& buff) {
 	eth = (struct eth_header*) pkt;
 	vlan = (struct vlan_header*) (buff.data() + sizeof(struct eth_header));
 	eth->eth_type = vlan->vlan_next_type;
-	return new Array_buffer(pkt, buff.size());
+	lg.warn("Packet created");
+	return new Array_buffer(pkt, size);
 }
 Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
 	struct eth_header* eth0, *eth;
@@ -162,7 +166,7 @@ Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
 			buff.data() + sizeof(struct eth_header), buff.size()
 					- sizeof(struct eth_header));
 	eth = (struct eth_header*) pkt;
-	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header) );
+	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
 	vlan->vlan_next_type = eth0->eth_type;
 	eth->eth_type = htons(ETH_TYPE_VLAN);
 	lg.warn("VLAN ID OUT: %d type %x", vlanid, ntohs(eth0->eth_type));
@@ -210,8 +214,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 						lg.warn("Sending VLAN CHANGE");
 						buff1 = boost::shared_ptr<Buffer>(pkt_change_vlan(buff,
 								ep->vlan));
-						forward_via_controller(ep->ep_id,
-								(const vigil::Buffer&) buff1, ep->in_port);
+						forward_via_controller(ep->ep_id, buff1, ep->in_port);
 					} else if (ep_src->vlan != OFPVID_NONE && ep->vlan
 							== OFPVID_NONE) {
 						/*Remove tag*/
@@ -219,21 +222,22 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 						buff1
 								= boost::shared_ptr<Buffer>(pkt_remove_vlan(
 										buff));
-						forward_via_controller(ep->ep_id,
-								(const vigil::Buffer&) buff1, ep->in_port);
+						forward_via_controller(ep->ep_id, buff1, ep->in_port);
 					} else if (ep_src->vlan == OFPVID_NONE && ep->vlan
 							!= OFPVID_NONE) {
 						/* Append VLAN */
 						lg.warn("Sending VLAN APPEND");
-						send_openflow_pkt(datapathid::from_host(ep->ep_id),
-								*(boost::shared_ptr<Buffer>(pkt_append_vlan(
-										buff, ep->vlan))), OFPP_CONTROLLER,
-								ep->in_port, false);
+						//						send_openflow_pkt(datapathid::from_host(ep->ep_id),
+						//								*(boost::shared_ptr<Buffer>()), OFPP_CONTROLLER,
+						//								ep->in_port, false);
+						buff1 = boost::shared_ptr<Buffer>(pkt_append_vlan(buff,
+								ep->vlan));
+						forward_via_controller(ep->ep_id, buff1, ep->in_port);
 
 					} else {
 
 						forward_via_controller(ep->ep_id,
-								(const vigil::Buffer&) buff, ep->in_port);
+								buff, ep->in_port);
 					}
 				}
 			}
@@ -684,7 +688,20 @@ int fns::remove_rule(FNSRule rule) {
 
 #endif
 
-void fns::forward_via_controller(uint64_t id, const Buffer& buff, int port) {
+void fns::forward_via_controller(uint64_t id, boost::shared_ptr<Buffer> buff,
+		int port) {
+	lg.warn("ATTENTION. Sending packet directly to the destination: %lu :%d",
+			id, port);
+
+#ifdef NOX_OF10
+	send_openflow_packet(datapathid::from_host(id), buff, port, 0, false);
+#else
+	send_openflow_pkt(datapathid::from_host(id), *buff, OFPP_CONTROLLER, port,
+			false);
+#endif
+}
+void fns::forward_via_controller(uint64_t id, const Buffer &buff,
+		int port) {
 	lg.warn("ATTENTION. Sending packet directly to the destination: %lu :%d",
 			id, port);
 
@@ -695,6 +712,7 @@ void fns::forward_via_controller(uint64_t id, const Buffer& buff, int port) {
 			false);
 #endif
 }
+
 
 Flow* fns::getMatchFlow(uint64_t id, Flow* flow) {
 	return flow;
