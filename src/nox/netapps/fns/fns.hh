@@ -131,7 +131,7 @@ private:
 	ofp_match install_rule_tag_push(uint64_t id, int p_in, int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
 	ofp_match install_rule_tag_pop(uint64_t id, int p_in, int p_out,
-			vigil::ethernetaddr dl_dst, int buf);
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
 };
 }
 #endif
