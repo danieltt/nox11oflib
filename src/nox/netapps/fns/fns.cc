@@ -171,7 +171,7 @@ Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
 	vlan->vlan_next_type = eth0->eth_type;
 	eth->eth_type = htons(ETH_TYPE_VLAN);
 	lg.warn("VLAN ID OUT: %d type %x", vlanid, ntohs(eth0->eth_type));
-	vlan->vlan_tci = (htons(vlanid) & VLAN_VID_MASK) << VLAN_VID_SHIFT;
+	vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
 	//vlan->vlan_tci = 0xffff;
 
 	return new Array_buffer(pkt, size);
@@ -295,17 +295,17 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 
 
 		/*dst node and no expect vlan*/
-		if (k == 0 && ep_dst->vlan == OFPVID_NONE && ep_src->vlan
+		if (k == path.size() - 1 && ep_dst->vlan == OFPVID_NONE && ep_src->vlan
 				!= OFPVID_NONE) {
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_src->vlan);
-		} else if (k == 0 && ep_dst->vlan != OFPVID_NONE && ep_src->vlan
+		} else if (k == path.size() - 1 && ep_dst->vlan != OFPVID_NONE && ep_src->vlan
 				== OFPVID_NONE) {
 			/*push vlan*/
 			match = install_rule_tag_push(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_dst->vlan);
-		} else if (k == 0 && ep_dst->vlan != ep_src->vlan && ep_src->vlan
+		} else if (k == path.size() - 1 && ep_dst->vlan != ep_src->vlan && ep_src->vlan
 				!= OFPVID_NONE) {
 			/*change vlan*/
 			match = install_rule_tag_change(path.at(k)->id, out_port, dl_dst,
@@ -313,25 +313,25 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		} else {
 			/*none*/
 			match = install_rule(path.at(k)->id, out_port, dl_dst, buf_id,
-					ep_src->vlan);
+					ep_dst->vlan);
 		}
 
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
 
-		if ((k == path.size() - 1) && (ep_src->vlan == OFPVID_NONE)
+		if ((k == 0) && (ep_src->vlan == OFPVID_NONE)
 				&& (ep_dst->vlan != OFPVID_NONE)) {
 			/*src node*/
 
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_dst->vlan);
-		} else if ((k == path.size() - 1) && ep_src->vlan != OFPVID_NONE
+		} else if ((k == 0) && ep_src->vlan != OFPVID_NONE
 				&& ep_dst->vlan == OFPVID_NONE) {
 			/*push vlan*/
 			match = install_rule_tag_push(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_src->vlan);
-		} else if ((k == path.size() - 1) && ep_dst->vlan != ep_src->vlan
+		} else if ((k == 0) && ep_dst->vlan != ep_src->vlan
 				&& ep_src->vlan != OFPVID_NONE) {
 			/*change vlan*/
 			match = install_rule_tag_change(path.at(k)->id, in_port, dl_src,
@@ -339,7 +339,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		} else {
 			/*none*/
 			match = install_rule(path.at(k)->id, in_port, dl_src, buf_id,
-					ep_dst->vlan);
+					ep_src->vlan);
 		}
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
