@@ -23,6 +23,7 @@
 #include "libnetvirt/fns.h"
 
 #include "packets.h"
+#include "packet_util.hh"
 #define TIMEOUT_DEF 0
 
 #ifdef NOX_OF10
@@ -124,58 +125,6 @@ Disposition fns::handle_packet_in(const Event& e) {
 	return CONTINUE;
 }
 
-Buffer* pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
-	struct eth_header* eth;
-	struct vlan_header* vlan;
-	size_t size = buff.size();
-	uint8_t *pkt = new uint8_t[size];
-	memcpy(pkt, buff.data(), buff.size());
-	eth = (struct eth_header*) pkt;
-	if (ntohs(eth->eth_type) == ETH_TYPE_VLAN) {
-		lg.warn("Changing VLAN to %d", vlanid);
-		vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
-		vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
-	}
-	return new Array_buffer(pkt, buff.size());
-}
-Buffer* pkt_remove_vlan(const Buffer& buff) {
-	struct eth_header* eth;
-	struct vlan_header* vlan;
-	size_t size = buff.size() - sizeof(struct vlan_header);
-	uint8_t *pkt = new uint8_t[size];
-	memset(pkt, 0, size);
-	memcpy(pkt, buff.data(), sizeof(struct eth_header));
-	memcpy(pkt + sizeof(struct eth_header), buff.data()
-			+ sizeof(struct eth_header) + sizeof(struct vlan_header),
-			buff.size() - sizeof(struct eth_header)
-					- sizeof(struct vlan_header));
-	eth = (struct eth_header*) pkt;
-	vlan = (struct vlan_header*) (buff.data() + sizeof(struct eth_header));
-	eth->eth_type = vlan->vlan_next_type;
-	lg.warn("Packet created");
-	return new Array_buffer(pkt, size);
-}
-Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
-	struct eth_header* eth0, *eth;
-	struct vlan_header* vlan;
-	size_t size = buff.size() + sizeof(struct vlan_header);
-	uint8_t *pkt = new uint8_t[size]; // eth=14,tlv1=9,tlv2=7,tlv3=4,tlv0=2
-	eth0 = (struct eth_header*) buff.data();
-	memset(pkt, 0, size);
-	memcpy(pkt, buff.data(), sizeof(struct eth_header));
-	memcpy(&pkt[sizeof(struct eth_header) + sizeof(struct vlan_header)],
-			buff.data() + sizeof(struct eth_header), buff.size()
-					- sizeof(struct eth_header));
-	eth = (struct eth_header*) pkt;
-	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
-	vlan->vlan_next_type = eth0->eth_type;
-	eth->eth_type = htons(ETH_TYPE_VLAN);
-	lg.warn("VLAN ID OUT: %d type %x", vlanid, ntohs(eth0->eth_type));
-	vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
-	//vlan->vlan_tci = 0xffff;
-
-	return new Array_buffer(pkt, size);
-}
 void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		int buf_id) {
 	EPoint* ep_dst;
@@ -205,6 +154,7 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 			/*Send to all endpoints of the fns*/
 			lg.warn("Sending ARP broadcast");
 			boost::shared_ptr<Buffer> buff1;
+
 			for (int j = 0; j < fns->numEPoints(); j++) {
 				EPoint* ep = fns->getEPoint(j);
 
@@ -212,31 +162,29 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 					if (ep->vlan != ep_src->vlan && ep->vlan != OFPVID_NONE
 							&& ep_src->vlan != OFPVID_NONE) {
 						/*Change VLAN*/
-						lg.warn("Sending VLAN CHANGE");
-						buff1 = boost::shared_ptr<Buffer>(pkt_change_vlan(buff,
-								ep->vlan));
-						forward_via_controller(ep->ep_id, buff1, ep->in_port);
+						lg.dbg("Sending VLAN CHANGE");
+						buff1 = boost::shared_ptr<Buffer>(
+								PacketUtil::pkt_change_vlan(buff, ep->vlan));
 					} else if (ep_src->vlan != OFPVID_NONE && ep->vlan
 							== OFPVID_NONE) {
 						/*Remove tag*/
 						lg.warn("Sending VLAN REMOVE");
-						buff1
-								= boost::shared_ptr<Buffer>(pkt_remove_vlan(
-										buff));
-						forward_via_controller(ep->ep_id, buff1, ep->in_port);
+						buff1 = boost::shared_ptr<Buffer>(
+								PacketUtil::pkt_remove_vlan(buff));
 					} else if (ep_src->vlan == OFPVID_NONE && ep->vlan
 							!= OFPVID_NONE) {
 						/* Append VLAN */
 						lg.warn("Sending VLAN APPEND");
-						buff1 = boost::shared_ptr<Buffer>(pkt_append_vlan(buff,
-								ep->vlan));
-						forward_via_controller(ep->ep_id, buff1, ep->in_port);
-
-					} else {
-
-						forward_via_controller(ep->ep_id, buff, ep->in_port);
+						buff1 = boost::shared_ptr<Buffer>(
+								PacketUtil::pkt_append_vlan(buff, ep->vlan));
 					}
+
+					if (!buff1)
+						forward_via_controller(ep->ep_id, buff, ep->in_port);
+					else
+						forward_via_controller(ep->ep_id, buff1, ep->in_port);
 				}
+
 			}
 			/*Nothing to be done*/
 			return;
