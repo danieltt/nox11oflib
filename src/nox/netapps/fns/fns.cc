@@ -300,13 +300,13 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_src->vlan);
-		} else if (k == path.size() - 1 && ep_dst->vlan != OFPVID_NONE && ep_src->vlan
-				== OFPVID_NONE) {
+		} else if (k == path.size() - 1 && ep_dst->vlan != OFPVID_NONE
+				&& ep_src->vlan == OFPVID_NONE) {
 			/*push vlan*/
 			match = install_rule_tag_push(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_dst->vlan);
-		} else if (k == path.size() - 1 && ep_dst->vlan != ep_src->vlan && ep_src->vlan
-				!= OFPVID_NONE) {
+		} else if (k == path.size() - 1 && ep_dst->vlan != ep_src->vlan
+				&& ep_src->vlan != OFPVID_NONE) {
 			/*change vlan*/
 			match = install_rule_tag_change(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_src->vlan, ep_dst->vlan);
@@ -319,20 +319,20 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
 
-		if ((k == 0) && (ep_src->vlan == OFPVID_NONE)
-				&& (ep_dst->vlan != OFPVID_NONE)) {
+		if ((k == 0) && (ep_src->vlan == OFPVID_NONE) && (ep_dst->vlan
+				!= OFPVID_NONE)) {
 			/*src node*/
 
 			/*pop vlan*/
 			match = install_rule_tag_pop(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_dst->vlan);
-		} else if ((k == 0) && ep_src->vlan != OFPVID_NONE
-				&& ep_dst->vlan == OFPVID_NONE) {
+		} else if ((k == 0) && ep_src->vlan != OFPVID_NONE && ep_dst->vlan
+				== OFPVID_NONE) {
 			/*push vlan*/
 			match = install_rule_tag_push(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_src->vlan);
-		} else if ((k == 0) && ep_dst->vlan != ep_src->vlan
-				&& ep_src->vlan != OFPVID_NONE) {
+		} else if ((k == 0) && ep_dst->vlan != ep_src->vlan && ep_src->vlan
+				!= OFPVID_NONE) {
 			/*change vlan*/
 			match = install_rule_tag_change(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_dst->vlan, ep_src->vlan);
@@ -496,8 +496,8 @@ ofp_match fns::install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
 
 	mod.instructions = insts;
 
-	if (send_openflow_msg(datapathid::from_host(id), (struct ofl_msg_header *) &mod, 0/*xid*/, false)
-			== EAGAIN) {
+	if (send_openflow_msg(datapathid::from_host(id),
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -537,8 +537,8 @@ ofp_match fns::install_rule_tag_push(uint64_t id, int p_out,
 
 	mod.instructions = insts;
 
-	if (send_openflow_msg(datapathid::from_host(id), (struct ofl_msg_header *) &mod, 0/*xid*/, false)
-			== EAGAIN) {
+	if (send_openflow_msg(datapathid::from_host(id),
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -932,6 +932,13 @@ void fns::server() {
 }
 void fns::configure(const Configuration* c) {
 	server_port = TCP_PORT;
+
+	const hash_map<string, string> argmap = c->get_arguments_list();
+	hash_map<string, string>::const_iterator i;
+	i = argmap.find("tcpport");
+	if (i != argmap.end())
+		server_port = (uint16_t) atoi(i->second.c_str());
+
 	lg.dbg(" Listening in port: %d", server_port);
 }
 

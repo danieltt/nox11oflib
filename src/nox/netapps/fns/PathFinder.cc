@@ -52,8 +52,25 @@ void PathFinder::removeNode(uint64_t id) {
 
 void PathFinder::addEdge(uint64_t node1, uint64_t node2, LinkAtr* atr1,
 		LinkAtr* atr2) {
-	Node* n1 = nodes.find(node1)->second;
-	Node* n2 = nodes.find(node2)->second;
+	Node* n1;
+	Node* n2;
+	map<uint64_t, Node*>::iterator epr;
+
+	if (nodes.size() == 0) {
+		return;
+	}
+
+	epr = nodes.find(node1);
+	if (nodes.end() == epr)
+		return;
+	else
+		n1 = epr->second;
+
+	epr = nodes.find(node2);
+	if (nodes.end() == epr)
+		return;
+	else
+		n2 = epr->second;
 
 	n1->adjacentNodes.push_back(pair<Node*, LinkAtr*> (n2, atr1));
 	n2->adjacentNodes.push_back(pair<Node*, LinkAtr*> (n1, atr2));
@@ -196,10 +213,10 @@ vector<Node*> PathFinder::getPath(uint64_t destination) {
 int main(int argc, char* argv[]) {
 	PathFinder finder;
 
-	finder.addNode(1,4);
-	finder.addNode(2,4);
-	finder.addNode(3,4);
-	finder.addNode(4,4);
+	finder.addNode(1, 4);
+	finder.addNode(2, 4);
+	finder.addNode(3, 4);
+	finder.addNode(4, 4);
 
 	LinkAtr* atr = new LinkAtr(1, 1, 1);
 	finder.addEdge(1, 2, atr, atr);
