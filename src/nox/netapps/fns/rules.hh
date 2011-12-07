@@ -42,19 +42,19 @@ public:
 class EPoint {
 public:
 	EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan, uint64_t fns_uuid);
+	EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan, uint64_t fns_uuid, uint32_t mpls);
 	void addRule(FNSRule r);
 	int num_installed();
 	FNSRule getRuleBack();
 	void installed_pop();
-	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan);
-
+	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan, uint32_t mpls);
 
 	uint64_t key;
 	uint64_t ep_id;
 	int in_port;
-	uint32_t mpls;
 	uint16_t vlan;
 	uint64_t fns_uuid;
+	uint32_t mpls;
 
 private:
 	vector<FNSRule> installed_rules;

@@ -78,6 +78,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	uint64_t dpid;
 	int port;
 	uint32_t vlan = OFPVID_NONE;
+	uint32_t mpls = 0;
 	ethernetaddr dl_src;
 
 #ifdef NOX_OF10
@@ -96,6 +97,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	dpid = ome.dpid.as_host();
 	port = in->in_port;
 	vlan = flow.match.dl_vlan;
+	mpls = flow.match.mpls_label;
 	dl_src = ethernetaddr(flow.match.dl_src);
 #endif
 
@@ -108,7 +110,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 		return CONTINUE;
 	}
 
-	uint64_t key = EPoint::generate_key(dpid, port, vlan);
+	uint64_t key = EPoint::generate_key(dpid, port, vlan, mpls);
 	boost::shared_ptr<EPoint> ep = rules.getEpoint(key);
 
 	if (ep == NULL) {
@@ -659,7 +661,7 @@ int fns::mod_fns_del(fnsDesc* fns1) {
 }
 
 int fns::remove_endpoint(endpoint *epd, boost::shared_ptr<FNS> fns) {
-	uint64_t key = EPoint::generate_key(epd->swId, epd->port, epd->vlan);
+	uint64_t key = EPoint::generate_key(epd->swId, epd->port, epd->vlan, epd->mpls);
 	boost::shared_ptr<EPoint> ep = rules.getEpoint(key);
 	return remove_endpoint(ep, fns);
 

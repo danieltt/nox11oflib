@@ -28,8 +28,14 @@ FNSRule::FNSRule(uint64_t sw_id, ofp_match match1) :
 EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
 		uint64_t fns_uuid) :
 	ep_id(ep_id), in_port(in_port), vlan(vlan), fns_uuid(fns_uuid) {
-	key = generate_key(ep_id, in_port, vlan);
+	key = generate_key(ep_id, in_port, vlan, 0);
 }
+EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
+		uint64_t fns_uuid, uint32_t mpls) :
+	ep_id(ep_id), in_port(in_port), vlan(vlan), fns_uuid(fns_uuid), mpls(mpls) {
+	key = generate_key(ep_id, in_port, vlan, mpls);
+}
+
 
 void EPoint::addRule(FNSRule r) {
 	installed_rules.push_back(r);
@@ -44,11 +50,12 @@ void EPoint::installed_pop() {
 	installed_rules.pop_back();
 }
 
-uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan) {
+uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan, uint32_t mpls) {
 	uint64_t seed = 0;
 	boost::hash_combine(seed, port);
 	boost::hash_combine(seed, sw_id);
 	boost::hash_combine(seed, vlan);
+	boost::hash_combine(seed, mpls);
 	return seed;
 }
 
