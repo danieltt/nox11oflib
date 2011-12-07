@@ -75,7 +75,7 @@ public:
 
 	void server();
 
-	void process_packet_in(EPoint* rule, Flow *flow, const Buffer& buff,
+	void process_packet_in(boost::shared_ptr<EPoint> rule, Flow *flow, const Buffer& buff,
 			int buf_id);
 
 	int remove_rule(FNSRule rule);
@@ -84,8 +84,8 @@ public:
 	int remove_fns(fnsDesc* fns);
 	int mod_fns_add(fnsDesc* fns);
 	int mod_fns_del(fnsDesc* fns);
-	int remove_endpoint(endpoint* epd, FNS* fns);
-	int remove_endpoint(EPoint *ep, FNS* fns);
+	int remove_endpoint(endpoint* epd, boost::shared_ptr<FNS> fns);
+	int remove_endpoint(boost::shared_ptr<EPoint> ep, boost::shared_ptr<FNS> fns);
 
 	Flow* getMatchFlow(uint64_t id, Flow* flow);
 

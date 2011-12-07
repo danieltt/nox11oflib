@@ -22,6 +22,7 @@
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
 #include "netinet++/ethernetaddr.hh"
+#include <boost/smart_ptr/shared_ptr.hpp>
 
 #include <stdio.h>
 #include <cstdlib>
@@ -64,43 +65,43 @@ public:
 	FNS(uint64_t uuid);
 	uint64_t getUuid();
 	int numEPoints();
-	void addEPoint(EPoint* ep);
-	int removeEPoint(EPoint* ep);
-	EPoint* getEPoint(int pos);
+	void addEPoint(boost::shared_ptr<EPoint> ep);
+	int removeEPoint(boost::shared_ptr<EPoint> ep);
+	boost::shared_ptr<EPoint> getEPoint(int pos);
 
 private:
 	uint64_t uuid;
-	vector<EPoint*> epoints;
+	vector<boost::shared_ptr<EPoint> > epoints;
 };
 
 
 class RulesDB {
 public:
 
-	uint64_t addEPoint(endpoint* ep, FNS* fns);
-	EPoint* getEpoint(uint64_t key);
+	uint64_t addEPoint(endpoint* ep, boost::shared_ptr<FNS> fns);
+	boost::shared_ptr<EPoint> getEpoint(uint64_t key);
 	void removeEPoint(uint64_t key);
 
-	FNS* addFNS(fnsDesc* fns);
+	boost::shared_ptr<FNS> addFNS(fnsDesc* fns);
 	void removeFNS(uint64_t uuid);
-	FNS* getFNS(uint64_t uuid);
+	boost::shared_ptr<FNS> getFNS(uint64_t uuid);
 
 
 private:
 	PathFinder* finder;
 	/* Rules in memory
 	 * To be more scalable should be stored in a distributed way*/
-	map<uint64_t, EPoint> endpoints;
-	map<uint64_t, FNS> fnsList;
+	map<uint64_t, boost::shared_ptr<EPoint> > endpoints;
+	map<uint64_t, boost::shared_ptr<FNS> > fnsList;
 };
 
 class Locator {
 public:
-	bool insertClient(vigil::ethernetaddr addr, EPoint* ep);
-	EPoint* getLocation(vigil::ethernetaddr);
+	bool insertClient(vigil::ethernetaddr addr, boost::shared_ptr<EPoint> ep);
+	boost::shared_ptr<EPoint> getLocation(vigil::ethernetaddr);
 	void printLocations();
 private:
-	map<vigil::ethernetaddr, EPoint*> clients;
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> > clients;
 	bool validateAddr(vigil::ethernetaddr addr);
 
 };

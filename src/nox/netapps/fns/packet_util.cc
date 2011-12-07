@@ -21,7 +21,7 @@
 #include "packets.h"
 #include "netinet++/ethernet.hh"
 
-Buffer* PacketUtil::pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
+boost::shared_ptr<Buffer> PacketUtil::pkt_swap_vlan(const Buffer& buff, uint16_t vlanid) {
 	struct eth_header* eth;
 	struct vlan_header* vlan;
 	size_t size = buff.size();
@@ -32,10 +32,10 @@ Buffer* PacketUtil::pkt_change_vlan(const Buffer& buff, uint16_t vlanid) {
 		vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
 		vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
 	}
-	return new Array_buffer(pkt, buff.size());
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
 }
 
-Buffer* PacketUtil::pkt_remove_vlan(const Buffer& buff) {
+boost::shared_ptr<Buffer> PacketUtil::pkt_pop_vlan(const Buffer& buff) {
 	struct eth_header* eth;
 	struct vlan_header* vlan;
 	size_t size = buff.size() - sizeof(struct vlan_header);
@@ -49,10 +49,10 @@ Buffer* PacketUtil::pkt_remove_vlan(const Buffer& buff) {
 	eth = (struct eth_header*) pkt;
 	vlan = (struct vlan_header*) (buff.data() + sizeof(struct eth_header));
 	eth->eth_type = vlan->vlan_next_type;
-	return new Array_buffer(pkt, size);
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
 }
 
-Buffer* PacketUtil::pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
+boost::shared_ptr<Buffer> PacketUtil::pkt_push_vlan(const Buffer& buff, uint16_t vlanid) {
 	struct eth_header* eth0, *eth;
 	struct vlan_header* vlan;
 	size_t size = buff.size() + sizeof(struct vlan_header);
@@ -68,5 +68,55 @@ Buffer* PacketUtil::pkt_append_vlan(const Buffer& buff, uint16_t vlanid) {
 	vlan->vlan_next_type = eth0->eth_type;
 	eth->eth_type = htons(ETH_TYPE_VLAN);
 	vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
-	return new Array_buffer(pkt, size);
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
+}
+
+boost::shared_ptr<Buffer> PacketUtil::pkt_swap_mpls(const Buffer& buff, uint16_t vlanid){
+	struct eth_header* eth;
+	struct vlan_header* vlan;
+	size_t size = buff.size();
+	uint8_t *pkt = new uint8_t[size];
+	memcpy(pkt, buff.data(), buff.size());
+	eth = (struct eth_header*) pkt;
+	if (ntohs(eth->eth_type) == ETH_TYPE_VLAN) {
+		vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
+		vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
+	}
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
+}
+
+boost::shared_ptr<Buffer> PacketUtil::pkt_pop_mpls(const Buffer& buff){
+	struct eth_header* eth;
+	struct vlan_header* vlan;
+	size_t size = buff.size() - sizeof(struct vlan_header);
+	uint8_t *pkt = new uint8_t[size];
+	memset(pkt, 0, size);
+	memcpy(pkt, buff.data(), sizeof(struct eth_header));
+	memcpy(pkt + sizeof(struct eth_header), buff.data()
+			+ sizeof(struct eth_header) + sizeof(struct vlan_header),
+			buff.size() - sizeof(struct eth_header)
+					- sizeof(struct vlan_header));
+	eth = (struct eth_header*) pkt;
+	vlan = (struct vlan_header*) (buff.data() + sizeof(struct eth_header));
+	eth->eth_type = vlan->vlan_next_type;
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
+}
+
+boost::shared_ptr<Buffer> PacketUtil::pkt_push_mpls(const Buffer& buff, uint16_t vlanid){
+	struct eth_header* eth0, *eth;
+	struct vlan_header* vlan;
+	size_t size = buff.size() + sizeof(struct vlan_header);
+	uint8_t *pkt = new uint8_t[size]; // eth=14,tlv1=9,tlv2=7,tlv3=4,tlv0=2
+	eth0 = (struct eth_header*) buff.data();
+	memset(pkt, 0, size);
+	memcpy(pkt, buff.data(), sizeof(struct eth_header));
+	memcpy(&pkt[sizeof(struct eth_header) + sizeof(struct vlan_header)],
+			buff.data() + sizeof(struct eth_header), buff.size()
+					- sizeof(struct eth_header));
+	eth = (struct eth_header*) pkt;
+	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
+	vlan->vlan_next_type = eth0->eth_type;
+	eth->eth_type = htons(ETH_TYPE_VLAN);
+	vlan->vlan_tci = (htons(vlanid & VLAN_VID_MASK)) << VLAN_VID_SHIFT;
+	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
 }

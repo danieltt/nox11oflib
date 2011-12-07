@@ -19,6 +19,7 @@
 #ifndef PACKET_HH_
 #define PACKET_HH_
 #include "buffer.hh"
+#include <boost/smart_ptr/shared_ptr.hpp>
 
 using namespace vigil;
 class PacketUtil {
@@ -29,11 +30,13 @@ public:
 	static const int TC_IPV6 = 0x3;
 
 	/* VLAN packet modifications*/
-	static Buffer* pkt_change_vlan(const Buffer& buff, uint16_t vlanid);
-	static Buffer* pkt_remove_vlan(const Buffer& buff);
-	static Buffer* pkt_append_vlan(const Buffer& buff, uint16_t vlanid);
+	static boost::shared_ptr<Buffer> pkt_swap_vlan(const Buffer& buff, uint16_t vlanid);
+	static boost::shared_ptr<Buffer> pkt_pop_vlan(const Buffer& buff);
+	static boost::shared_ptr<Buffer> pkt_push_vlan(const Buffer& buff, uint16_t vlanid);
 
 	/* MPLS packet modification */
-
+	static boost::shared_ptr<Buffer> pkt_swap_mpls(const Buffer& buff, uint16_t vlanid);
+	static boost::shared_ptr<Buffer> pkt_pop_mpls(const Buffer& buff);
+	static boost::shared_ptr<Buffer> pkt_push_mpls(const Buffer& buff, uint16_t vlanid);
 };
 #endif /* PACKET_HH_ */

@@ -109,7 +109,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	}
 
 	uint64_t key = EPoint::generate_key(dpid, port, vlan);
-	EPoint* ep = rules.getEpoint(key);
+	boost::shared_ptr<EPoint> ep = rules.getEpoint(key);
 
 	if (ep == NULL) {
 		lg.dbg("No rules for this endpoint: %ld:%d %d %lu", dpid, port, vlan,
@@ -125,16 +125,16 @@ Disposition fns::handle_packet_in(const Event& e) {
 	return CONTINUE;
 }
 
-void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
+void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, Flow *flow, const Buffer& buff,
 		int buf_id) {
-	EPoint* ep_dst;
+	boost::shared_ptr<EPoint> ep_dst;
 	ofp_match match;
 	vector<Node*> path;
 	int in_port = 0, out_port = 0;
 	int psize;
 	buf_id = -1;
 	pair<int, int> ports;
-	FNS* fns = rules.getFNS(ep_src->fns_uuid);
+	boost::shared_ptr<FNS> fns = rules.getFNS(ep_src->fns_uuid);
 
 	lg.dbg("Processing and installing rule for %ld:%d in fns: %ld\n",
 			ep_src->ep_id, ep_src->in_port, fns->getUuid());
@@ -156,36 +156,39 @@ void fns::process_packet_in(EPoint* ep_src, Flow *flow, const Buffer& buff,
 			boost::shared_ptr<Buffer> buff1;
 
 			for (int j = 0; j < fns->numEPoints(); j++) {
-				EPoint* ep = fns->getEPoint(j);
+				boost::shared_ptr<EPoint> ep = fns->getEPoint(j);
 
-				if (ep->key != ep_src->key) {
-					if (ep->vlan != ep_src->vlan && ep->vlan != OFPVID_NONE
-							&& ep_src->vlan != OFPVID_NONE) {
-						/*Change VLAN*/
-						lg.dbg("Sending VLAN CHANGE");
-						buff1 = boost::shared_ptr<Buffer>(
-								PacketUtil::pkt_change_vlan(buff, ep->vlan));
-					} else if (ep_src->vlan != OFPVID_NONE && ep->vlan
-							== OFPVID_NONE) {
-						/*Remove tag*/
-						lg.warn("Sending VLAN REMOVE");
-						buff1 = boost::shared_ptr<Buffer>(
-								PacketUtil::pkt_remove_vlan(buff));
-					} else if (ep_src->vlan == OFPVID_NONE && ep->vlan
-							!= OFPVID_NONE) {
-						/* Append VLAN */
-						lg.warn("Sending VLAN APPEND");
-						buff1 = boost::shared_ptr<Buffer>(
-								PacketUtil::pkt_append_vlan(buff, ep->vlan));
-					}
-
-					if (!buff1)
-						forward_via_controller(ep->ep_id, buff, ep->in_port);
-					else
-						forward_via_controller(ep->ep_id, buff1, ep->in_port);
+				if (ep->key == ep_src->key) {
+					continue;
 				}
 
+				/* VLAN MANIPULATION */
+				if (ep->vlan != ep_src->vlan && ep->vlan != OFPVID_NONE
+						&& ep_src->vlan != OFPVID_NONE) {
+					/* Change VLAN*/
+					lg.dbg("Sending VLAN CHANGE");
+					buff1 = PacketUtil::pkt_swap_vlan(buff, ep->vlan);
+				} else if (ep_src->vlan != OFPVID_NONE && ep->vlan
+						== OFPVID_NONE) {
+					/* Remove tag*/
+					lg.dbg("Sending VLAN REMOVE");
+					buff1 = PacketUtil::pkt_pop_vlan(buff);
+				} else if (ep_src->vlan == OFPVID_NONE && ep->vlan
+						!= OFPVID_NONE) {
+					/* Append VLAN */
+					lg.dbg("Sending VLAN APPEND");
+					buff1 = PacketUtil::pkt_push_vlan(buff, ep->vlan);
+				}
+
+				/* MPLS MANIPULATION */
+
+				/* SENDING */
+				if (!buff1)
+					forward_via_controller(ep->ep_id, buff, ep->in_port);
+				else
+					forward_via_controller(ep->ep_id, buff1, ep->in_port);
 			}
+
 			/*Nothing to be done*/
 			return;
 		} else {
@@ -628,7 +631,7 @@ Flow* fns::getMatchFlow(uint64_t id, Flow* flow) {
 }
 
 int fns::mod_fns_add(fnsDesc* fns1) {
-	FNS* fns = rules.getFNS(fns1->uuid);
+	boost::shared_ptr<FNS> fns = rules.getFNS(fns1->uuid);
 	if (fns == NULL) {
 		lg.warn("The FNS doesn't exists");
 		return -1;
@@ -642,7 +645,7 @@ int fns::mod_fns_add(fnsDesc* fns1) {
 	return 0;
 }
 int fns::mod_fns_del(fnsDesc* fns1) {
-	FNS* fns = rules.getFNS(fns1->uuid);
+	boost::shared_ptr<FNS> fns = rules.getFNS(fns1->uuid);
 	if (fns == NULL) {
 		lg.warn("The FNS doesn't exist");
 		return -1;
@@ -655,13 +658,13 @@ int fns::mod_fns_del(fnsDesc* fns1) {
 	return 0;
 }
 
-int fns::remove_endpoint(endpoint *epd, FNS* fns) {
+int fns::remove_endpoint(endpoint *epd, boost::shared_ptr<FNS> fns) {
 	uint64_t key = EPoint::generate_key(epd->swId, epd->port, epd->vlan);
-	EPoint* ep = rules.getEpoint(key);
+	boost::shared_ptr<EPoint> ep = rules.getEpoint(key);
 	return remove_endpoint(ep, fns);
 
 }
-int fns::remove_endpoint(EPoint *ep, FNS *fns) {
+int fns::remove_endpoint(boost::shared_ptr<EPoint> ep, boost::shared_ptr<FNS> fns) {
 	if (ep == NULL) {
 		lg.warn("The EndPoint doesn't exist");
 		return -1;
@@ -680,7 +683,7 @@ int fns::remove_endpoint(EPoint *ep, FNS *fns) {
 }
 int fns::save_fns(fnsDesc* fns1) {
 
-	FNS* fns = rules.addFNS(fns1);
+	boost::shared_ptr<FNS> fns = rules.addFNS(fns1);
 
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
@@ -693,7 +696,7 @@ int fns::save_fns(fnsDesc* fns1) {
 	return 0;
 }
 int fns::remove_fns(fnsDesc* fns1) {
-	FNS* fns = rules.getFNS(fns1->uuid);
+	boost::shared_ptr<FNS> fns = rules.getFNS(fns1->uuid);
 
 	lg.warn("Removing fns with uuid: %lu \n", fns->getUuid());
 	if (fns == NULL) {

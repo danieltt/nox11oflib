@@ -61,12 +61,12 @@ uint64_t FNS::getUuid() {
 	return uuid;
 }
 
-void FNS::addEPoint(EPoint* ep) {
+void FNS::addEPoint(boost::shared_ptr<EPoint> ep) {
 	//	printf("Adding ep: %d %d\n",ep->ep_id, ep->in_port);
 	epoints.push_back(ep);
 }
 
-int FNS::removeEPoint(EPoint* ep) {
+int FNS::removeEPoint(boost::shared_ptr<EPoint> ep) {
 	ep->fns_uuid = 0;
 	epoints.erase(std::remove(epoints.begin(), epoints.end(), ep),
 			epoints.end());
@@ -77,19 +77,19 @@ int FNS::removeEPoint(EPoint* ep) {
 int FNS::numEPoints() {
 	return epoints.size();
 }
-EPoint* FNS::getEPoint(int pos) {
+boost::shared_ptr<EPoint> FNS::getEPoint(int pos) {
 	return epoints.at(pos);
 }
 
 /*RulesDB class*/
-uint64_t RulesDB::addEPoint(endpoint* ep, FNS* fns) {
-	EPoint epoint = EPoint(ep->swId, ep->port, ep->vlan, fns->getUuid());
+uint64_t RulesDB::addEPoint(endpoint* ep, boost::shared_ptr<FNS> fns) {
+	boost::shared_ptr<EPoint> epoint = boost::shared_ptr<EPoint> (new EPoint(ep->swId, ep->port, ep->vlan, fns->getUuid()));
 	//	printf("Adding %ld\n",ep->id);
-	EPoint *node = getEpoint(epoint.key);
+	boost::shared_ptr<EPoint> node = getEpoint(epoint->key);
 	if (node == NULL) {
-		endpoints.insert(pair<uint64_t, EPoint> (epoint.key, epoint));
-		fns->addEPoint(getEpoint(epoint.key));
-		return epoint.key;
+		endpoints.insert(pair<uint64_t, boost::shared_ptr<EPoint> > (epoint->key, epoint));
+		fns->addEPoint(getEpoint(epoint->key));
+		return epoint->key;
 	} else {
 		return 0;
 	}
@@ -98,31 +98,28 @@ void RulesDB::removeEPoint(uint64_t key) {
 	endpoints.erase(key);
 }
 
-EPoint* RulesDB::getEpoint(uint64_t id) {
+boost::shared_ptr<EPoint> RulesDB::getEpoint(uint64_t id) {
 	//	printf("# endpoints: %d\n",endpoints.size());
 	if (endpoints.size() == 0) {
-		return NULL;
+		return boost::shared_ptr<EPoint>();
 	}
-	map<uint64_t, EPoint>::iterator epr = endpoints.find(id);
+	map<uint64_t, boost::shared_ptr<EPoint> >::iterator epr = endpoints.find(id);
 	if (endpoints.end() == epr)
-		return NULL;
-	return &epr->second;
+		return boost::shared_ptr<EPoint>();
+	return epr->second;
 }
 
-FNS* RulesDB::addFNS(fnsDesc* fns1) {
-	FNS fns(fns1->uuid);
-	//	for (int i = 0; i < fns1->nEp; i++) {
-	//		fns.addEPoint(fns1->ep[i]);
-	//	}
-	fnsList.insert(pair<uint64_t, FNS> (fns1->uuid, fns));
+boost::shared_ptr<FNS> RulesDB::addFNS(fnsDesc* fns1) {
+	boost::shared_ptr<FNS> fns = boost::shared_ptr<FNS>(new FNS(fns1->uuid));
+	fnsList.insert(pair<uint64_t, boost::shared_ptr<FNS> > (fns1->uuid, fns));
 	return getFNS(fns1->uuid);
 }
 
-FNS* RulesDB::getFNS(uint64_t uuid) {
-	map<uint64_t, FNS>::iterator fns1 = fnsList.find(uuid);
+boost::shared_ptr<FNS> RulesDB::getFNS(uint64_t uuid) {
+	map<uint64_t, boost::shared_ptr<FNS> >::iterator fns1 = fnsList.find(uuid);
 	if (fnsList.end() == fns1)
-		return NULL;
-	return &fns1->second;
+		return boost::shared_ptr<FNS>();
+	return fns1->second;
 }
 
 void RulesDB::removeFNS(uint64_t uuid) {
@@ -140,7 +137,7 @@ bool Locator::validateAddr(vigil::ethernetaddr addr) {
 	/*Check if ethernetaddr exists*/
 	if (clients.size() == 0)
 		return true;
-	map<vigil::ethernetaddr, EPoint*>::iterator epr = clients.find(addr);
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr = clients.find(addr);
 	if (clients.end() == epr) {
 		return true;
 	}
@@ -148,25 +145,25 @@ bool Locator::validateAddr(vigil::ethernetaddr addr) {
 	return false;
 }
 
-bool Locator::insertClient(vigil::ethernetaddr addr, EPoint* ep) {
+bool Locator::insertClient(vigil::ethernetaddr addr, boost::shared_ptr<EPoint>  ep) {
 	if (!validateAddr(addr))
 		return false;
 	/*If not, insert*/
-	clients.insert(pair<vigil::ethernetaddr, EPoint*> (addr, ep));
+	clients.insert(pair<vigil::ethernetaddr, boost::shared_ptr<EPoint> > (addr, ep));
 	return true;
 }
-EPoint* Locator::getLocation(vigil::ethernetaddr addr) {
+boost::shared_ptr<EPoint> Locator::getLocation(vigil::ethernetaddr addr) {
 	if (clients.size() == 0) {
-		return NULL;
+		return boost::shared_ptr<EPoint>();
 	}
-	map<vigil::ethernetaddr, EPoint*>::iterator epr = clients.find(addr);
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr = clients.find(addr);
 	if (clients.end() == epr)
-		return NULL;
-	return epr->second;
+		return boost::shared_ptr<EPoint>();
+	return boost::shared_ptr<EPoint>(epr->second);
 }
 
 void Locator::printLocations() {
-	map<vigil::ethernetaddr, EPoint*>::iterator it;
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator it;
 	printf("LOACATOR DB:\n");
 	printf("num of entries: %d\n", (int) clients.size());
 	for (it = clients.begin(); it != clients.end(); it++) {
