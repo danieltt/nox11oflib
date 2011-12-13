@@ -84,7 +84,7 @@ if test "$HAVE_coreapps" = "yes"; then
     CHECK_TWISTED
     dnl only check for swig if python was enabled
     if test -n "$PYTHON"; then
-        AC_PROG_SWIG(2.0.4)
+        AC_PROG_SWIG(1.3)
         if test -z "$SWIG"; then
             AC_MSG_ERROR([When configured with python, NOX requires swig 1.3.0 or later to be installed])
         fi
