@@ -29,13 +29,13 @@ EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
 		uint64_t fns_uuid) :
 	ep_id(ep_id), in_port(in_port), vlan(vlan), fns_uuid(fns_uuid) {
 	key = generate_key(ep_id, in_port, vlan, 0);
+	mpls = 0;
 }
 EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
 		uint64_t fns_uuid, uint32_t mpls) :
 	ep_id(ep_id), in_port(in_port), vlan(vlan), fns_uuid(fns_uuid), mpls(mpls) {
 	key = generate_key(ep_id, in_port, vlan, mpls);
 }
-
 
 void EPoint::addRule(FNSRule r) {
 	installed_rules.push_back(r);
@@ -50,7 +50,8 @@ void EPoint::installed_pop() {
 	installed_rules.pop_back();
 }
 
-uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan, uint32_t mpls) {
+uint64_t EPoint::generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan,
+		uint32_t mpls) {
 	uint64_t seed = 0;
 	boost::hash_combine(seed, port);
 	boost::hash_combine(seed, sw_id);
@@ -90,11 +91,13 @@ boost::shared_ptr<EPoint> FNS::getEPoint(int pos) {
 
 /*RulesDB class*/
 uint64_t RulesDB::addEPoint(endpoint* ep, boost::shared_ptr<FNS> fns) {
-	boost::shared_ptr<EPoint> epoint = boost::shared_ptr<EPoint> (new EPoint(ep->swId, ep->port, ep->vlan, fns->getUuid()));
+	boost::shared_ptr<EPoint> epoint = boost::shared_ptr<EPoint>(new EPoint(
+			ep->swId, ep->port, ep->vlan, fns->getUuid()));
 	//	printf("Adding %ld\n",ep->id);
 	boost::shared_ptr<EPoint> node = getEpoint(epoint->key);
 	if (node == NULL) {
-		endpoints.insert(pair<uint64_t, boost::shared_ptr<EPoint> > (epoint->key, epoint));
+		endpoints.insert(pair<uint64_t, boost::shared_ptr<EPoint> > (
+				epoint->key, epoint));
 		fns->addEPoint(getEpoint(epoint->key));
 		return epoint->key;
 	} else {
@@ -110,7 +113,8 @@ boost::shared_ptr<EPoint> RulesDB::getEpoint(uint64_t id) {
 	if (endpoints.size() == 0) {
 		return boost::shared_ptr<EPoint>();
 	}
-	map<uint64_t, boost::shared_ptr<EPoint> >::iterator epr = endpoints.find(id);
+	map<uint64_t, boost::shared_ptr<EPoint> >::iterator epr =
+			endpoints.find(id);
 	if (endpoints.end() == epr)
 		return boost::shared_ptr<EPoint>();
 	return epr->second;
@@ -144,26 +148,41 @@ bool Locator::validateAddr(vigil::ethernetaddr addr) {
 	/*Check if ethernetaddr exists*/
 	if (clients.size() == 0)
 		return true;
-	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr = clients.find(addr);
-	if (clients.end() == epr) {
-		return true;
-	}
+	//	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr =
+	//			clients.find(addr);
+	//	if (clients.end() == epr) {
+	//		return true;
+	//	}
 
 	return false;
 }
 
-bool Locator::insertClient(vigil::ethernetaddr addr, boost::shared_ptr<EPoint>  ep) {
+bool Locator::insertClient(vigil::ethernetaddr addr,
+		boost::shared_ptr<EPoint> ep) {
 	if (!validateAddr(addr))
 		return false;
-	/*If not, insert*/
-	clients.insert(pair<vigil::ethernetaddr, boost::shared_ptr<EPoint> > (addr, ep));
+
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr =
+			clients.find(addr);
+	if (clients.end() != epr) {
+		/* Update value */
+		epr->second = ep;
+	}else{
+		/* Add value */
+		clients.insert(pair<vigil::ethernetaddr, boost::shared_ptr<EPoint> > (addr,
+			ep));
+	}
+
 	return true;
 }
+
+
 boost::shared_ptr<EPoint> Locator::getLocation(vigil::ethernetaddr addr) {
 	if (clients.size() == 0) {
 		return boost::shared_ptr<EPoint>();
 	}
-	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr = clients.find(addr);
+	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr =
+			clients.find(addr);
 	if (clients.end() == epr)
 		return boost::shared_ptr<EPoint>();
 	return boost::shared_ptr<EPoint>(epr->second);
