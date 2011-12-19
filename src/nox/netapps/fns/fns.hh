@@ -43,7 +43,6 @@
 #include "vlog.hh"
 #endif
 
-#define HARD_TIMEOUT 30
 namespace vigil {
 using namespace std;
 using namespace vigil::container;
@@ -56,6 +55,9 @@ using namespace vigil::container;
  */
 class fns: public Component {
 public:
+
+	static const int IDLE_TIMEOUT = 0;
+	static const int HARD_TIMEOUT = 0;
 	/** \brief Constructor of fns.
 	 *
 	 * @param c context
@@ -75,8 +77,8 @@ public:
 
 	void server();
 
-	void process_packet_in(boost::shared_ptr<EPoint> rule, Flow *flow, const Buffer& buff,
-			int buf_id);
+	void process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
+			const Buffer& buff, int buf_id);
 
 	int remove_rule(FNSRule rule);
 
@@ -85,7 +87,8 @@ public:
 	int mod_fns_add(fnsDesc* fns);
 	int mod_fns_del(fnsDesc* fns);
 	int remove_endpoint(endpoint* epd, boost::shared_ptr<FNS> fns);
-	int remove_endpoint(boost::shared_ptr<EPoint> ep, boost::shared_ptr<FNS> fns);
+	int remove_endpoint(boost::shared_ptr<EPoint> ep,
+			boost::shared_ptr<FNS> fns);
 
 	Flow* getMatchFlow(uint64_t id, Flow* flow);
 
@@ -126,14 +129,23 @@ private:
 	void forward_via_controller(uint64_t id,
 			const boost::shared_ptr<Buffer> buff, int port);
 	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
-	ofp_match install_rule(uint64_t id, int p_out,
-			vigil::ethernetaddr dl_dst, int buf, uint16_t vlan);
-	ofp_match install_rule_tag_push(uint64_t id,int p_out,
+	ofp_match install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
+			int buf, uint16_t vlan, uint32_t mpls);
+	ofp_match install_rule_vlan_push(uint64_t id, int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
-	ofp_match install_rule_tag_pop(uint64_t id, int p_out,
+	ofp_match install_rule_vlan_pop(uint64_t id, int p_out,
 			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
-	ofp_match install_rule_tag_change(uint64_t id, int p_out,
-			vigil::ethernetaddr dl_dst, int buf, uint32_t tag_in, uint32_t tag_out);
+	ofp_match install_rule_vlan_swap(uint64_t id, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag_in,
+			uint32_t tag_out);
+
+	ofp_match install_rule_mpls_push(uint64_t id, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
+	ofp_match install_rule_mpls_pop(uint64_t id, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag);
+	ofp_match install_rule_mpls_swap(uint64_t id, int p_out,
+			vigil::ethernetaddr dl_dst, int buf, uint32_t tag_in,
+			uint32_t tag_out);
 };
 }
 #endif

@@ -28,6 +28,8 @@ public:
 	static const int TC_IPV4 = 0x1;
 	static const int TC_ARP = 0x2;
 	static const int TC_IPV6 = 0x3;
+	static uint8_t get_eth_type_from_mplstc(uint8_t tc);
+	static uint8_t get_mplstc_from_eth_type(uint8_t type);
 
 	/* VLAN packet modifications*/
 	static boost::shared_ptr<Buffer> pkt_swap_vlan(const Buffer& buff, uint16_t vlanid);

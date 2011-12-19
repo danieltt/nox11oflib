@@ -92,7 +92,7 @@ boost::shared_ptr<EPoint> FNS::getEPoint(int pos) {
 /*RulesDB class*/
 uint64_t RulesDB::addEPoint(endpoint* ep, boost::shared_ptr<FNS> fns) {
 	boost::shared_ptr<EPoint> epoint = boost::shared_ptr<EPoint>(new EPoint(
-			ep->swId, ep->port, ep->vlan, fns->getUuid()));
+			ep->swId, ep->port, ep->vlan, fns->getUuid(),ep->mpls));
 	//	printf("Adding %ld\n",ep->id);
 	boost::shared_ptr<EPoint> node = getEpoint(epoint->key);
 	if (node == NULL) {
@@ -148,11 +148,11 @@ bool Locator::validateAddr(vigil::ethernetaddr addr) {
 	/*Check if ethernetaddr exists*/
 	if (clients.size() == 0)
 		return true;
-	//	map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr =
-	//			clients.find(addr);
-	//	if (clients.end() == epr) {
-	//		return true;
-	//	}
+		map<vigil::ethernetaddr, boost::shared_ptr<EPoint> >::iterator epr =
+				clients.find(addr);
+	if (clients.end() == epr) {
+			return true;
+	}
 
 	return false;
 }
