@@ -43,9 +43,9 @@ class EPoint {
 public:
 	EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan, uint64_t fns_uuid);
 	EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan, uint64_t fns_uuid, uint32_t mpls);
-	void addRule(FNSRule r);
+	void addRule(boost::shared_ptr<FNSRule> r);
 	int num_installed();
-	FNSRule getRuleBack();
+	boost::shared_ptr<FNSRule> getRuleBack();
 	void installed_pop();
 	static uint64_t generate_key(uint64_t sw_id, uint32_t port, uint16_t vlan, uint32_t mpls);
 
@@ -57,7 +57,7 @@ public:
 	uint32_t mpls;
 
 private:
-	vector<FNSRule> installed_rules;
+	vector<boost::shared_ptr<FNSRule> > installed_rules;
 };
 
 class FNS{

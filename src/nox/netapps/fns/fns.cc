@@ -254,8 +254,9 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 		}
 
 		/* Keeping track of the installed rules */
-		ep_src->addRule(FNSRule(path.at(k)->id, match));
-		ep_dst->addRule(FNSRule(path.at(k)->id, match));
+		boost::shared_ptr<FNSRule> rule = boost::shared_ptr<FNSRule>(new FNSRule(path.at(k)->id, match));
+		ep_src->addRule(rule);
+		ep_dst->addRule(rule);
 
 		if ((k == 0) && (ep_src->vlan == OFPVID_NONE) && (ep_dst->vlan
 				!= OFPVID_NONE)) {
@@ -281,8 +282,9 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 		}
 		/* Keeping track of the installed rules */
 
-		ep_src->addRule(FNSRule(path.at(k)->id, match));
-		ep_dst->addRule(FNSRule(path.at(k)->id, match));
+		rule = boost::shared_ptr<FNSRule>(new FNSRule(path.at(k)->id, match));
+		ep_src->addRule(rule);
+		ep_dst->addRule(rule);
 
 		in_port = ports.second;
 
@@ -686,12 +688,12 @@ ofp_match fns::install_rule_mpls_swap(uint64_t id, int p_out,
 	return match;
 }
 
-int fns::remove_rule(FNSRule rule) {
+int fns::remove_rule(boost::shared_ptr<FNSRule> rule) {
 	datapathid dpid;
 
-	lg.dbg("Removing rule in %lu", rule.sw_id);
+	lg.dbg("Removing rule in %lu", rule->sw_id);
 	/*OpenFlow command initialization*/
-	dpid = datapathid::from_host(rule.sw_id);
+	dpid = datapathid::from_host(rule->sw_id);
 
 	struct ofl_msg_flow_mod mod;
 	mod.header.type = OFPT_FLOW_MOD;
@@ -702,7 +704,7 @@ int fns::remove_rule(FNSRule rule) {
 	mod.out_port = OFPP_ANY;
 	mod.out_group = OFPG_ANY;
 	mod.flags = 0x0000;
-	mod.match = (struct ofl_match_header *) &rule.match;
+	mod.match = (struct ofl_match_header *) &rule->match;
 	mod.instructions_num = 0;
 	mod.instructions = NULL;
 
@@ -795,7 +797,7 @@ int fns::remove_endpoint(boost::shared_ptr<EPoint> ep,
 	}
 	lg.dbg("Installed rules: %d", (int) ep->num_installed());
 	while (ep->num_installed() > 0) {
-		FNSRule rule = ep->getRuleBack();
+		boost::shared_ptr<FNSRule> rule = ep->getRuleBack();
 		remove_rule(rule);
 		ep->installed_pop();
 	}

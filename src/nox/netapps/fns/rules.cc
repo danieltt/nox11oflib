@@ -37,13 +37,13 @@ EPoint::EPoint(uint64_t ep_id, uint32_t in_port, uint16_t vlan,
 	key = generate_key(ep_id, in_port, vlan, mpls);
 }
 
-void EPoint::addRule(FNSRule r) {
+void EPoint::addRule(boost::shared_ptr<FNSRule> r) {
 	installed_rules.push_back(r);
 }
 int EPoint::num_installed() {
 	return installed_rules.size();
 }
-FNSRule EPoint::getRuleBack() {
+boost::shared_ptr<FNSRule> EPoint::getRuleBack() {
 	return installed_rules.back();
 }
 void EPoint::installed_pop() {

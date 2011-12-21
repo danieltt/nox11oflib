@@ -80,7 +80,7 @@ public:
 	void process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 			const Buffer& buff, int buf_id);
 
-	int remove_rule(FNSRule rule);
+	int remove_rule(boost::shared_ptr<FNSRule> rule);
 
 	int save_fns(fnsDesc* fns);
 	int remove_fns(fnsDesc* fns);
