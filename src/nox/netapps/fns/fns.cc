@@ -173,6 +173,7 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 				forward_via_controller(ep->ep_id, buff1, ep->in_port);
 			}
 
+
 			forward_via_controller(ep->ep_id, buff, ep->in_port);
 
 
@@ -254,6 +255,7 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 
 		/* Keeping track of the installed rules */
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
+		ep_dst->addRule(FNSRule(path.at(k)->id, match));
 
 		if ((k == 0) && (ep_src->vlan == OFPVID_NONE) && (ep_dst->vlan
 				!= OFPVID_NONE)) {
@@ -278,7 +280,9 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 					ep_src->vlan, 0);
 		}
 		/* Keeping track of the installed rules */
+
 		ep_src->addRule(FNSRule(path.at(k)->id, match));
+		ep_dst->addRule(FNSRule(path.at(k)->id, match));
 
 		in_port = ports.second;
 
@@ -753,7 +757,7 @@ int fns::mod_fns_add(fnsDesc* fns1) {
 		endpoint *ep = GET_ENDPOINT(fns1, i);
 		uint64_t key = rules.addEPoint(ep, fns);
 
-		lg.warn("Endpoint: %ld : %d vlan: %d m: %d k: %lu\n", ep->swId,
+		lg.dbg("Endpoint: %ld : %d vlan: %d m: %d k: %lu\n", ep->swId,
 				ep->port, ep->vlan, ep->mpls, key);
 		if (!key)
 			lg.warn("Collision. Remove endpoint before adding a new one");
@@ -784,11 +788,12 @@ int fns::remove_endpoint(endpoint *epd, boost::shared_ptr<FNS> fns) {
 }
 int fns::remove_endpoint(boost::shared_ptr<EPoint> ep,
 		boost::shared_ptr<FNS> fns) {
+
 	if (ep == NULL) {
 		lg.warn("The EndPoint doesn't exist");
 		return -1;
 	}
-	lg.warn("Installed rules: %d", (int) ep->num_installed());
+	lg.dbg("Installed rules: %d", (int) ep->num_installed());
 	while (ep->num_installed() > 0) {
 		FNSRule rule = ep->getRuleBack();
 		remove_rule(rule);
