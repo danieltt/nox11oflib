@@ -31,7 +31,7 @@ boost::shared_ptr<Buffer> PacketUtil::pkt_swap_vlan(const Buffer& buff,
 	eth = (struct eth_header*) pkt;
 	if (ntohs(eth->eth_type) == ETH_TYPE_VLAN) {
 		vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
-		vlan->vlan_tci = htons(vlanid << VLAN_VID_SHIFT & VLAN_VID_MASK);
+		vlan->vlan_tci = htons(vlanid & VLAN_VID_MASK);
 	}
 	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
 }
@@ -69,10 +69,10 @@ boost::shared_ptr<Buffer> PacketUtil::pkt_push_vlan(const Buffer& buff,
 	vlan = (struct vlan_header*) (pkt + sizeof(struct eth_header));
 	vlan->vlan_next_type = eth0->eth_type;
 	eth->eth_type = htons(ETH_TYPE_VLAN);
-	vlan->vlan_tci = htons(vlanid << VLAN_VID_SHIFT & VLAN_VID_MASK);
+	vlan->vlan_tci = htons(vlanid & VLAN_VID_MASK);
 	return boost::shared_ptr<Buffer>(new Array_buffer(pkt, size));
 }
-
+#ifdef NOX_OF11
 boost::shared_ptr<Buffer> PacketUtil::pkt_swap_mpls(const Buffer& buff,
 		uint16_t mplsid) {
 	struct eth_header* eth;
@@ -106,7 +106,7 @@ boost::shared_ptr<Buffer> PacketUtil::pkt_pop_mpls(const Buffer& buff) {
 		memcpy(pkt + sizeof(struct eth_header), buff.data()
 				+ sizeof(struct eth_header) + sizeof(struct mpls_header),
 				buff.size() - sizeof(struct eth_header)
-						- sizeof(struct mpls_header));
+				- sizeof(struct mpls_header));
 
 		mpls = (struct mpls_header*) (buff.data() + sizeof(struct eth_header));
 		/* Map eth type to TC type */
@@ -127,7 +127,7 @@ boost::shared_ptr<Buffer> PacketUtil::pkt_push_mpls(const Buffer& buff,
 	memcpy(pkt, buff.data(), sizeof(struct eth_header));
 	memcpy(&pkt[sizeof(struct eth_header) + sizeof(struct mpls_header)],
 			buff.data() + sizeof(struct eth_header), buff.size()
-					- sizeof(struct eth_header));
+			- sizeof(struct eth_header));
 
 	eth = (struct eth_header*) pkt;
 	mpls = (struct mpls_header*) (pkt + sizeof(struct eth_header));
@@ -145,13 +145,13 @@ boost::shared_ptr<Buffer> PacketUtil::pkt_push_mpls(const Buffer& buff,
 uint8_t PacketUtil::get_eth_type_from_mplstc(uint8_t mpls_tc) {
 	uint8_t type;
 	switch (mpls_tc) {
-	case TC_ARP:
+		case TC_ARP:
 		type = htons(ETH_TYPE_ARP);
 		break;
-	case TC_IPV4:
+		case TC_IPV4:
 		type = htons(ETH_TYPE_IP);
 		break;
-	default:
+		default:
 		type = htons(ETH_TYPE_IP);
 	}
 	return type;
@@ -160,14 +160,15 @@ uint8_t PacketUtil::get_eth_type_from_mplstc(uint8_t mpls_tc) {
 uint8_t PacketUtil::get_mplstc_from_eth_type(uint8_t type) {
 	uint8_t tc;
 	switch (ntohs(type)) {
-	case ETH_TYPE_ARP:
+		case ETH_TYPE_ARP:
 		tc = TC_ARP;
 		break;
-	case ETH_TYPE_IP:
+		case ETH_TYPE_IP:
 		tc = TC_IPV4;
 		break;
-	default:
+		default:
 		tc = TC_IPV4;
 	}
 	return tc;
 }
+#endif

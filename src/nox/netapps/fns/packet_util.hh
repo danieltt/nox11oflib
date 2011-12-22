@@ -28,17 +28,20 @@ public:
 	static const int TC_IPV4 = 0x1;
 	static const int TC_ARP = 0x2;
 	static const int TC_IPV6 = 0x3;
-	static uint8_t get_eth_type_from_mplstc(uint8_t tc);
-	static uint8_t get_mplstc_from_eth_type(uint8_t type);
 
 	/* VLAN packet modifications*/
 	static boost::shared_ptr<Buffer> pkt_swap_vlan(const Buffer& buff, uint16_t vlanid);
 	static boost::shared_ptr<Buffer> pkt_pop_vlan(const Buffer& buff);
 	static boost::shared_ptr<Buffer> pkt_push_vlan(const Buffer& buff, uint16_t vlanid);
 
+#ifdef NOX_OF11
 	/* MPLS packet modification */
+	static uint8_t get_eth_type_from_mplstc(uint8_t tc);
+	static uint8_t get_mplstc_from_eth_type(uint8_t type);
+
 	static boost::shared_ptr<Buffer> pkt_swap_mpls(const Buffer& buff, uint16_t vlanid);
 	static boost::shared_ptr<Buffer> pkt_pop_mpls(const Buffer& buff);
 	static boost::shared_ptr<Buffer> pkt_push_mpls(const Buffer& buff, uint16_t vlanid);
+#endif
 };
 #endif /* PACKET_HH_ */
