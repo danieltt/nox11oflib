@@ -39,7 +39,8 @@ static Vlog_module lg("fns");
 Disposition fns::handle_link_event(const Event& e) {
 	const Link_event& le = assert_cast<const Link_event&> (e);
 	int cost = 1;
-	lg.dbg("Adding link to finder");
+	lg.dbg("Adding link: %lu:%u -> %lu:%u", le.dpsrc.as_host(), le.sport,
+			le.dpdst.as_host(), le.dport);
 	if (le.action == le.ADD) {
 		finder.addEdge(le.dpsrc.as_host(), le.dpdst.as_host(), new LinkAtr(
 				cost, le.sport, le.dport),
@@ -81,7 +82,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 	dpid = pi.datapath_id.as_host();
 	port = pi.in_port;
 	dl_src = ethernetaddr(flow.dl_src);
-	vlan = flow.dl_vlan;
+	vlan = ntohs(flow.dl_vlan);
 #else
 	const Ofp_msg_event& ome = assert_cast<const Ofp_msg_event&> (e);
 	struct ofl_msg_packet_in *in = (struct ofl_msg_packet_in *) **ome.msg;
@@ -98,7 +99,7 @@ Disposition fns::handle_packet_in(const Event& e) {
 #ifdef NOX_OF10
 	if (flow.dl_type == ethernet::LLDP) {
 #else
-		if (flow.match.dl_type == LLDP_TYPE) {
+	if (flow.match.dl_type == LLDP_TYPE) {
 #endif
 		return CONTINUE;
 	}
@@ -140,12 +141,13 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 	ethernetaddr dl_src = ethernetaddr(flow.dl_src);
 	if (flow.dl_type == ethernet::ARP) {
 #else
-		ethernetaddr dl_dst = ethernetaddr(flow.match.dl_dst);
-		ethernetaddr dl_src = ethernetaddr(flow.match.dl_src);
-		if (flow.match.dl_type == ETH_TYPE_ARP) {
+	ethernetaddr dl_dst = ethernetaddr(flow.match.dl_dst);
+	ethernetaddr dl_src = ethernetaddr(flow.match.dl_src);
+	if (flow.match.dl_type == ETH_TYPE_ARP) {
 #endif
-		lg.dbg("Sending ARP to all endpoints: src %s dst: %s",
-				dl_src.string().c_str(), dl_dst.string().c_str());
+		lg.dbg("Sending ARP to all %d endpoints: src %s dst: %s",
+				fns->numEPoints(), dl_src.string().c_str(),
+				dl_dst.string().c_str());
 		for (int j = 0; j < fns->numEPoints(); j++) {
 			boost::shared_ptr<EPoint> ep = fns->getEPoint(j);
 
@@ -172,9 +174,10 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 				lg.dbg("Sending VLAN PUSH");
 				buff1 = PacketUtil::pkt_push_vlan(buff, ep->vlan);
 				forward_via_controller(ep->ep_id, buff1, ep->in_port);
-			}
+			} else {
 
-			forward_via_controller(ep->ep_id, buff, ep->in_port);
+				forward_via_controller(ep->ep_id, buff, ep->in_port);
+			}
 		}
 	}
 
@@ -240,7 +243,8 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 			match = install_rule_vlan_push(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_dst->vlan);
 		} else if (k == path.size() - 1 && ep_dst->vlan != ep_src->vlan
-				&& ep_src->vlan != fns::VLAN_NONE) {
+				&& ep_src->vlan != fns::VLAN_NONE && ep_dst->vlan
+				!= fns::VLAN_NONE) {
 			/*change vlan*/
 			match = install_rule_vlan_swap(path.at(k)->id, out_port, dl_dst,
 					buf_id, ep_src->vlan, ep_dst->vlan);
@@ -269,7 +273,7 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 			match = install_rule_vlan_push(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_src->vlan);
 		} else if ((k == 0) && ep_dst->vlan != ep_src->vlan && ep_src->vlan
-				!= fns::VLAN_NONE) {
+				!= fns::VLAN_NONE && ep_dst->vlan != fns::VLAN_NONE) {
 			/*change vlan*/
 			match = install_rule_vlan_swap(path.at(k)->id, in_port, dl_src,
 					buf_id, ep_dst->vlan, ep_src->vlan);
@@ -297,9 +301,10 @@ void fns::set_match(struct ofp_match* match, vigil::ethernetaddr dl_dst,
 	uint32_t filter = OFPFW_ALL;
 	/*Filter by port*/
 	filter &= (~OFPFW_DL_DST);
+	if (vlan != fns::VLAN_NONE)
 	filter &= (~OFPFW_DL_VLAN);
 	memcpy(match->dl_dst, dl_dst.octet, sizeof(dl_dst.octet));
-	match->dl_vlan = vlan;
+	match->dl_vlan = htons(vlan);
 	match->wildcards = htonl(filter);
 }
 
@@ -320,7 +325,6 @@ void fns::set_mod_def(struct ofp_flow_mod *ofm, int p_out, int buf) {
 ofp_match fns::install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
 		int buf, uint16_t vlan, uint32_t mpls) {
 	datapathid src;
-	ofp_action_list actlist;
 	lg.warn("Installing new path: %ld: %d ->  %s\n", id, p_out,
 			dl_dst.string().c_str());
 
@@ -352,19 +356,20 @@ ofp_match fns::install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
 
 ofp_match fns::install_rule_vlan_push(uint64_t id, int p_out,
 		vigil::ethernetaddr dl_dst, int buf, uint32_t vlan) {
+
 	return install_rule_vlan_swap(id, p_out, dl_dst, buf, VLAN_NONE, vlan);
 }
 
 ofp_match fns::install_rule_vlan_pop(uint64_t id, int p_out,
 		vigil::ethernetaddr dl_dst, int buf, uint32_t vlan) {
 	datapathid src;
-	ofp_action_list actlist;
-	lg.warn("Installing new path: %ld: %d ->  %s\n", id, p_out,
+	lg.warn("Installing new path POP %d : %ld: %d ->  %s\n", vlan, id, p_out,
 			dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
 	ofp_flow_mod* ofm;
-	size_t size = sizeof *ofm + sizeof(ofp_action_output);
+	size_t size = sizeof *ofm + sizeof(struct ofp_action_output)
+	+ sizeof(struct ofp_action_header);
 	boost::shared_array<char> raw_of(new char[size]);
 	ofm = (ofp_flow_mod*) raw_of.get();
 	ofm->header.length = htons(size);
@@ -373,9 +378,15 @@ ofp_match fns::install_rule_vlan_pop(uint64_t id, int p_out,
 	set_match(&ofm->match, dl_dst, vlan);
 	set_mod_def(ofm, p_out, buf);
 
-	/*Action*/
-	ofp_action_output& action = *((ofp_action_output*) ofm->actions);
-	memset(&action, 0, sizeof(ofp_action_output));
+	/* Action strip */
+	ofp_action_header& action_vlan = *((ofp_action_header*) ofm->actions);
+
+	action_vlan.type = htons(OFPAT_STRIP_VLAN);
+	action_vlan.len = htons(sizeof(ofp_action_header));
+
+	/*Action output*/
+	ofp_action_output &action = *((ofp_action_output*) ((char*) ofm->actions
+					+ sizeof(struct ofp_action_header)));
 
 	action.type = htons(OFPAT_OUTPUT);
 	action.len = htons(sizeof(ofp_action_output));
@@ -391,14 +402,13 @@ ofp_match fns::install_rule_vlan_pop(uint64_t id, int p_out,
 ofp_match fns::install_rule_vlan_swap(uint64_t id, int p_out,
 		vigil::ethernetaddr dl_dst, int buf, uint32_t tag_in, uint32_t tag_out) {
 	datapathid src;
-	ofp_action_list actlist;
-	lg.warn("Installing new path: %ld: %d ->  %s\n", id, p_out,
-			dl_dst.string().c_str());
+	lg.warn("Installing new path SWAP %d > %d: %ld: %d ->  %s\n", tag_in,
+			tag_out, id, p_out, dl_dst.string().c_str());
 
 	/*OpenFlow command initialization*/
 	ofp_flow_mod* ofm;
-	size_t size = sizeof *ofm + sizeof(ofp_action_output)
-			+ sizeof(ofp_action_vlan_vid);
+	size_t size = sizeof *ofm + sizeof(struct ofp_action_output)
+	+ sizeof(struct ofp_action_vlan_vid);
 	boost::shared_array<char> raw_of(new char[size]);
 	ofm = (ofp_flow_mod*) raw_of.get();
 	ofm->header.length = htons(size);
@@ -407,22 +417,21 @@ ofp_match fns::install_rule_vlan_swap(uint64_t id, int p_out,
 	set_match(&ofm->match, dl_dst, tag_in);
 	set_mod_def(ofm, p_out, buf);
 
-	/*Action*/
-	ofp_action_output& action = *((ofp_action_output*) ofm->actions);
-	memset(&action, 0, sizeof(ofp_action_output));
+	/*Action vlan*/
+	ofp_action_vlan_vid &action_vlan = *((ofp_action_vlan_vid*) ofm->actions);
+
+	action_vlan.type = htons(OFPAT_SET_VLAN_VID);
+	action_vlan.len = htons(sizeof(ofp_action_vlan_vid));
+	action_vlan.vlan_vid = htons(tag_out);
+
+	/*Action output*/
+	ofp_action_output &action = *((ofp_action_output*) ((char*) ofm->actions
+					+ sizeof(struct ofp_action_vlan_vid)));
 
 	action.type = htons(OFPAT_OUTPUT);
 	action.len = htons(sizeof(ofp_action_output));
 	action.max_len = htons(0);
 	action.port = htons(p_out);
-
-	ofp_action_vlan_vid& action_vlan = *((ofp_action_vlan_vid*) (ofm->actions
-			+ sizeof(ofp_action_output)));
-	memset(&action_vlan, 0, sizeof(ofp_action_vlan_vid));
-
-	action_vlan.type = htons(OFPAT_SET_VLAN_VID);
-	action_vlan.len = htons(sizeof(ofp_action_vlan_vid));
-	action_vlan.vlan_vid = htons(tag_out);
 
 	/*Send command*/
 	send_openflow_command(src, &ofm->header, true);
@@ -509,20 +518,20 @@ ofp_match fns::install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output};
+			(struct ofl_action_header *) &output };
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */1, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */1, /*.actions = */
+	actions };
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
 	if (send_openflow_msg(datapathid::from_host(id),
-					(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -541,29 +550,29 @@ ofp_match fns::install_rule_vlan_push(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
-	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_VLAN}, /*.ethertype = */
-		ETH_TYPE_VLAN};
-	struct ofl_action_vlan_vid set_vlan = { {/*.type = */OFPAT_SET_VLAN_VID}, /*.VLAN id = */
-		tag};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_VLAN }, /*.ethertype = */
+	ETH_TYPE_VLAN };
+	struct ofl_action_vlan_vid set_vlan = { {/*.type = */OFPAT_SET_VLAN_VID }, /*.VLAN id = */
+	tag };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &push,
-		(struct ofl_action_header *) &set_vlan};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &push,
+			(struct ofl_action_header *) &set_vlan };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */3, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */3, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
 	if (send_openflow_msg(datapathid::from_host(id),
-					(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -582,21 +591,21 @@ ofp_match fns::install_rule_vlan_pop(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
-	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_VLAN}, /*.ethertype = */
-		ETH_TYPE_IP};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_VLAN }, /*.ethertype = */
+	ETH_TYPE_IP };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &pop};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &pop };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */2, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
@@ -620,26 +629,26 @@ ofp_match fns::install_rule_vlan_swap(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
-	struct ofl_action_vlan_vid set_vlan = { {/*.type = */OFPAT_SET_VLAN_VID}, /*.VLAN id = */
-		tag_out};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_vlan_vid set_vlan = { {/*.type = */OFPAT_SET_VLAN_VID }, /*.VLAN id = */
+	tag_out };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &set_vlan};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &set_vlan };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */2, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
 	if (send_openflow_msg(datapathid::from_host(id),
-					(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -658,36 +667,36 @@ ofp_match fns::install_rule_mpls_push(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
-	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_MPLS}, /*.ethertype = */
-		ETH_TYPE_MPLS};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push push = { {/*.type = */OFPAT_PUSH_MPLS }, /*.ethertype = */
+	ETH_TYPE_MPLS };
 	struct ofl_action_mpls_label set_label = { {/*.type = */
-			OFPAT_SET_MPLS_LABEL}, /*.MPLS label = */
-		tag};
-	struct ofl_action_mpls_tc set_tc = { {/*.type = */OFPAT_SET_MPLS_TC}, /*.MPLS TC = */
-		PacketUtil::TC_IPV4};
-	struct ofl_action_mpls_tc set_ttl = { {/*.type = */OFPAT_SET_MPLS_TTL}, /*.MPLS TTL = */
-		20};
+	OFPAT_SET_MPLS_LABEL }, /*.MPLS label = */
+	tag };
+	struct ofl_action_mpls_tc set_tc = { {/*.type = */OFPAT_SET_MPLS_TC }, /*.MPLS TC = */
+	PacketUtil::TC_IPV4 };
+	struct ofl_action_mpls_tc set_ttl = { {/*.type = */OFPAT_SET_MPLS_TTL }, /*.MPLS TTL = */
+	20 };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &push,
-		(struct ofl_action_header *) &set_label,
-		(struct ofl_action_header *) &set_tc,
-		(struct ofl_action_header *) &set_ttl};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &push,
+			(struct ofl_action_header *) &set_label,
+			(struct ofl_action_header *) &set_tc,
+			(struct ofl_action_header *) &set_ttl };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */5, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */5, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
 	if (send_openflow_msg(datapathid::from_host(id),
-					(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -707,21 +716,21 @@ ofp_match fns::install_rule_mpls_pop(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
-	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_MPLS}, /*.ethertype = */
-		ETH_TYPE_IP};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
+	struct ofl_action_push pop = { {/*.type = */OFPAT_POP_MPLS }, /*.ethertype = */
+	ETH_TYPE_IP };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &pop};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &pop };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */2, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
@@ -745,27 +754,27 @@ ofp_match fns::install_rule_mpls_swap(uint64_t id, int p_out,
 	mod.match = (struct ofl_match_header *) &match;
 
 	/* Actions */
-	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT}, /*.port = */
-		p_out, /*.max_len = */0};
+	struct ofl_action_output output = { {/*.type = */OFPAT_OUTPUT }, /*.port = */
+	p_out, /*.max_len = */0 };
 	struct ofl_action_vlan_vid set_vlan = { {/*.type = */
-			OFPAT_SET_MPLS_LABEL}, /*.VLAN id = */
-		tag_out};
+	OFPAT_SET_MPLS_LABEL }, /*.VLAN id = */
+	tag_out };
 
 	struct ofl_action_header *actions[] = {
-		(struct ofl_action_header *) &output,
-		(struct ofl_action_header *) &set_vlan};
+			(struct ofl_action_header *) &output,
+			(struct ofl_action_header *) &set_vlan };
 
 	struct ofl_instruction_actions apply = { {/*.type = */
-			OFPIT_WRITE_ACTIONS}, /*.actions_num = */2, /*.actions = */
-		actions};
+	OFPIT_WRITE_ACTIONS }, /*.actions_num = */2, /*.actions = */
+	actions };
 
 	struct ofl_instruction_header *insts[] = {
-		(struct ofl_instruction_header *) &apply};
+			(struct ofl_instruction_header *) &apply };
 
 	mod.instructions = insts;
 
 	if (send_openflow_msg(datapathid::from_host(id),
-					(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
+			(struct ofl_msg_header *) &mod, 0/*xid*/, false) == EAGAIN) {
 		lg.err("Error, unable to clear flow table on startup");
 	}
 	return match;
@@ -891,15 +900,19 @@ int fns::remove_endpoint(boost::shared_ptr<EPoint> ep,
 	return 0;
 }
 int fns::save_fns(fnsDesc* fns1) {
-
-	boost::shared_ptr<FNS> fns = rules.addFNS(fns1);
+	boost::shared_ptr<FNS> fns = rules.getFNS(fns1->uuid);
+	if (fns != NULL) {
+		lg.warn("The FNS uuid exists");
+		return -1;
+	}
+	fns = rules.addFNS(fns1);
 
 	for (int i = 0; i < fns1->nEp; i++) {
 		/*Save endpoints and compute path*/
 		endpoint *ep = GET_ENDPOINT(fns1, i);
 		uint64_t key = rules.addEPoint(ep, fns);
 
-		lg.warn("Endpoint: %ld : %d vlan: %d m: %d k: %lu\n", ep->swId,
+		lg.dbg("Endpoint: %ld : %d vlan: %d m: %d k: %lu\n", ep->swId,
 				ep->port, ep->vlan, ep->mpls, key);
 		if (!key)
 			lg.warn("Collision. Remove endpoint before adding a new one");
