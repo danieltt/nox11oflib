@@ -227,10 +227,6 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 			in_port = ep_src->in_port;
 		}
 
-		/*Conflict resolution*/
-		//flow = getMatchFlow(path.at(k)->id, flow);
-
-
 		/*dst node and no expect vlan*/
 		if (k == path.size() - 1 && ep_dst->vlan == fns::VLAN_NONE
 				&& ep_src->vlan != fns::VLAN_NONE) {
@@ -282,8 +278,8 @@ void fns::process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
 			match = install_rule(path.at(k)->id, in_port, dl_src, buf_id,
 					ep_src->vlan, 0);
 		}
-		/* Keeping track of the installed rules */
 
+		/* Keeping track of the installed rules */
 		rule = boost::shared_ptr<FNSRule>(new FNSRule(path.at(k)->id, match));
 		ep_src->addRule(rule);
 		ep_dst->addRule(rule);
