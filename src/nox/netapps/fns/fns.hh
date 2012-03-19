@@ -33,6 +33,7 @@
 #include "openflow-default.hh"
 
 #include "rules.hh"
+#include "EPoint.hh"
 #include "libnetvirt/fns.h"
 #include "PathFinder.hh"
 
@@ -77,10 +78,7 @@ public:
 	Disposition handle_datapath_leave(const Event& e);
 	Disposition handle_packet_in(const Event& e);
 
-	void server();
 
-	void process_packet_in(boost::shared_ptr<EPoint> ep_src, const Flow& flow,
-			const Buffer& buff, int buf_id);
 
 	int remove_rule(boost::shared_ptr<FNSRule> rule);
 
@@ -122,11 +120,32 @@ private:
 	int server_port;
 	PathFinder finder;
 	RulesDB rules;
-	Locator locator;
+
+	//Locator locator;
 	uint64_t cookie;
 
-	void set_match(struct ofp_match* match, vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src,
-			uint16_t vlan);
+	int sock; /* The socket file descriptor for our "listening"
+	 socket */
+	int connectlist[MAX_CONNECTIONS]; /* Array of connected sockets so we know who
+	 we are talking to */
+	fd_set socks; /* Socket file descriptors we want to wake
+	 up for, using select() */
+	int highsock; /* Highest #'d file descriptor, needed for select() */
+
+	//void setnonblocking(int sock);
+	void build_select_list();
+	void handle_new_connection();
+	void read_socks();
+	void server();
+
+
+	void process_packet_in_l2(boost::shared_ptr<FNS> fns, boost::shared_ptr<EPoint> ep_src, const Flow& flow,
+				const Buffer& buff, int buf_id);
+	void process_packet_in_l3(boost::shared_ptr<FNS> fns, boost::shared_ptr<EPoint> ep_src, const Flow& flow,
+					const Buffer& buff, int buf_id);
+
+	void set_match(struct ofp_match* match, vigil::ethernetaddr dl_dst,
+			vigil::ethernetaddr dl_src, uint16_t vlan);
 #ifdef NOX_OF11
 	void set_mod_def(struct ofl_msg_flow_mod *mod, int p_out, int buf);
 #else
@@ -136,16 +155,22 @@ private:
 	void forward_via_controller(uint64_t id,
 			const boost::shared_ptr<Buffer> buff, int port);
 	void forward_via_controller(uint64_t id, const Buffer &buff, int port);
-	ofp_match install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src,
-			int buf, uint16_t vlan, uint32_t mpls);
+	void
+	send_pkt_to_all_fns(boost::shared_ptr<FNS> fns,
+			boost::shared_ptr<EPoint> ep_src, const Buffer& buff);
+
+	ofp_match install_rule(uint64_t id, int p_out, vigil::ethernetaddr dl_dst,
+			vigil::ethernetaddr dl_src, int buf, uint16_t vlan, uint32_t mpls);
 
 	ofp_match install_rule_vlan_push(uint64_t id, int p_out,
-			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf, uint32_t tag);
+			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf,
+			uint32_t tag);
 	ofp_match install_rule_vlan_pop(uint64_t id, int p_out,
-			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf, uint32_t tag);
+			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf,
+			uint32_t tag);
 	ofp_match install_rule_vlan_swap(uint64_t id, int p_out,
-			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf, uint32_t tag_in,
-			uint32_t tag_out);
+			vigil::ethernetaddr dl_dst, vigil::ethernetaddr dl_src, int buf,
+			uint32_t tag_in, uint32_t tag_out);
 
 #ifdef NOX_OF11
 #ifdef MPLS
